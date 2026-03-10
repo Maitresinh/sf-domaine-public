@@ -82,8 +82,10 @@ def load_award_names():
         for part in str(val).split('|'):
             part = part.strip()
             for emoji in ['🏆','🏅','📊']:
-                if emoji in part:
-                    name = part.split(emoji)[0].strip()
+                if part.startswith(emoji):
+                    # "🏆 Hugo Award – Best Novel" → "Hugo Award"
+                    rest = part[len(emoji):].strip()
+                    name = rest.split('–')[0].split('#')[0].strip()
                     if name and len(name) > 3:
                         counts[name] = counts.get(name, 0) + 1
                     break
