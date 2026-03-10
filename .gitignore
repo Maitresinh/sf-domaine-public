@@ -17,3 +17,4 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 data/*.sqlite-journal
+data/*.lock
