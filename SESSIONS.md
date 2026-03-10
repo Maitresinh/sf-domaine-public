@@ -83,3 +83,58 @@
 | `score` | INTEGER | /10 |
 | `groupe` | TEXT | groupe éditorial libre |
 | `tags_maison` | TEXT | tags éditoriaux libres |
+## Session 3 — 10 mars 2026 (soir)
+
+### Confirmation fin de 10_enrich_night.py
+- Terminé à 20:26:54 après ~8400 ops
+- Synopsis total : 9663 (vs 7438 avant)
+  - isfdb : inchangé
+  - wikipedia_full : 582
+  - wikipedia_search : 1797
+- OL description : 186 / OL sujets : 576 / OL rating : 137
+- Flags wp_searched / ol_searched correctement posés (reprise possible)
+
+### Problèmes rencontrés sur 12_dp_us_check.py
+- `sqlite3` absent du container sf-dp-tools → utiliser `python3 -c "import sqlite3..."` à la place
+- `pkill`, `ps`, `kill` absents du container (image python:3.12-slim ultra-minimale)
+- Multiples instances lancées par erreur → `database is locked` (OperationalError ligne 50)
+- Fix : `docker restart sf-dp-tools` + `flock /app/data/12.lock` pour éviter les doublons
+- Logs du projet dans `/app/data/*.log` (pas `/app/logs/`)
+
+### État DB après étape 1 du script 12
+| Métrique | Avant | Après étape 1 |
+|---|---|---|
+| dp_us_confirme | 24 079 | 27 670 (+3 591) |
+| dp_us_protege | 66 678 | 66 678 |
+| a_verifier (1928-1963, NULL) | 34 483 | 30 892 |
+| via_cce | — | 3 591 |
+| via_hathitrust | 0 | 0 (étape 3 en cours) |
+
+### Repo GitHub
+- Passé en public : https://github.com/Maitresinh/sf-domaine-public
+
+### Rappels techniques
+- Toujours utiliser `flock /app/data/NOM.lock` pour les scripts longs en `-d`
+- Vérifier qu'aucune instance ne tourne avant de relancer (pas de ps/kill → restart)
+- Logs dans `/app/data/` (volume monté), pas `/app/logs/`
+- sqlite3 CLI absent → python3 pour toutes les requêtes DB
+## Session 3 — 10 mars 2026 (soir)
+
+### Confirmation fin de 10_enrich_night.py
+- Terminé à 20:26:54 après ~8400 ops
+- Synopsis total : 9663 (vs 7438 avant)
+  - wikipedia_full : 582 / wikipedia_search : 1797
+- OL description : 186 / OL sujets : 576 / OL rating : 137
+
+### Problèmes rencontrés sur 12_dp_us_check.py
+- sqlite3, pkill, ps, kill absents du container (python:3.12-slim minimal)
+- Multiples instances → database is locked
+- Fix : docker restart + flock /app/data/12.lock
+- Logs dans /app/data/*.log (pas /app/logs/)
+
+### État DB après étape 1 du 12
+- dp_us_confirme : 24 079 → 27 670 (+3 591 romans non trouvés CCE)
+- a_verifier : 34 483 → 30 892
+- Étape 3 (OL → OCLC → HathiTrust) en cours
+
+### Repo GitHub passé public
