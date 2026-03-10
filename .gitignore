@@ -1,0 +1,18 @@
+# Data lourde
+data/mysql/
+data/isfdb.sql
+data/sf_dp.sqlite
+data/cce-spreadsheets/
+data/illus_test/
+data/*.log
+
+# Génériques
+*.sqlite
+*.db
+*.sql.gz
+*.pdf
+*.cbr
+__pycache__/
+*.pyc
+.env
+.streamlit/secrets.toml

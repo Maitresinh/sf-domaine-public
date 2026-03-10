@@ -1,0 +1,151 @@
+import mysql.connector, sqlite_utils
+from collections import defaultdict
+
+cn  = mysql.connector.connect(host='mariadb-sfdb', port=3306,
+                               user='root', password='isfdb', database='isfdb')
+cur = cn.cursor(dictionary=True)
+db  = sqlite_utils.Database('/app/data/sf_dp.sqlite')
+
+# Ajouter colonnes si absentes
+for col in ['synopsis', 'rating', 'annualviews', 'goodreads_id',
+            'isfdb_tags', 'isfdb_lists']:
+    try:
+        db.execute('ALTER TABLE works ADD COLUMN ' + col + ' TEXT')
+    except Exception:
+        pass
+
+# ── 1. Synopsis via notes FK ─────────────────────────────────────────────────
+print('Chargement synopsis...')
+cur.execute("""
+    SELECT t.title_id, n.note_note
+    FROM titles t
+    JOIN notes n ON t.title_synopsis = n.note_id
+    WHERE t.title_synopsis IS NOT NULL
+""")
+synopsis_map = {r['title_id']: r['note_note'] for r in cur.fetchall()}
+print(' ' + str(len(synopsis_map)) + ' synopsis')
+
+# ── 2. Rating + annualviews ──────────────────────────────────────────────────
+print('Chargement rating/views...')
+cur.execute("""
+    SELECT title_id, title_rating, title_annualviews
+    FROM titles
+    WHERE title_rating IS NOT NULL OR title_annualviews > 0
+""")
+views_map = {r['title_id']: (r['title_rating'], r['title_annualviews'])
+             for r in cur.fetchall()}
+print(' ' + str(len(views_map)) + ' titres avec rating/views')
+
+# ── 3. Awards via title_awards FK (propre) ───────────────────────────────────
+print('Chargement awards FK...')
+cur.execute("""
+    SELECT ta.title_id, at2.award_type_name, ac.award_cat_name, a.award_level
+    FROM title_awards ta
+    JOIN awards a       ON ta.award_id       = a.award_id
+    JOIN award_cats ac  ON a.award_cat_id    = ac.award_cat_id
+    JOIN award_types at2 ON ac.award_cat_type_id = at2.award_type_id
+    WHERE a.award_level IN (1, 2)
+""")
+awards_map = defaultdict(list)
+for r in cur.fetchall():
+    awards_map[r['title_id']].append(r)
+print(' ' + str(len(awards_map)) + ' titres avec awards')
+
+# ── 4. Goodreads ID ──────────────────────────────────────────────────────────
+print('Chargement Goodreads IDs...')
+cur.execute("""
+    SELECT pc.title_id, i.identifier_value
+    FROM identifiers i
+    JOIN identifier_types it ON i.identifier_type_id = it.identifier_type_id
+    JOIN pub_content pc      ON i.pub_id = pc.pub_id
+    WHERE it.identifier_type_name = 'Goodreads'
+""")
+goodreads_map = {}
+for r in cur.fetchall():
+    if r['title_id'] not in goodreads_map:
+        goodreads_map[r['title_id']] = r['identifier_value']
+print(' ' + str(len(goodreads_map)) + ' Goodreads IDs')
+
+# ── 5. Tags ISFDB ─────────────────────────────────────────────────────────────
+print('Chargement tags...')
+NOISE = ['read by', 'read ', 'owned', 'wish list', 'audible', 'kindle',
+         'award winner', 'award finalist', 'hugo award', 'nebula award',
+         'locus award', 'campbell award', '1-award']
+LISTS = ['masterwork', 'core collection', 'best novels', 'best sf',
+         'best science fiction', '100 best', '50 essential', 'anatomy of wonder',
+         'reading list', 'recommended']
+
+def is_noise(tag):
+    t = tag.lower()
+    return any(n in t for n in NOISE)
+def is_list(tag):
+    t = tag.lower()
+    return any(l in t for l in LISTS)
+
+cur.execute("""
+    SELECT tm.title_id, t.tag_name
+    FROM tag_mapping tm
+    JOIN tags t ON tm.tag_id = t.tag_id
+    WHERE t.tag_status = 0
+""")
+tags_map  = defaultdict(list)
+lists_map = defaultdict(list)
+for r in cur.fetchall():
+    tag = r['tag_name'].strip()
+    tid = r['title_id']
+    if is_noise(tag): continue
+    if is_list(tag):  lists_map[tid].append(tag)
+    else:             tags_map[tid].append(tag)
+print(' ' + str(len(tags_map)) + ' titres avec tags')
+
+# ── 6. Mise à jour SQLite ────────────────────────────────────────────────────
+works = list(db.execute('SELECT title_id FROM works').fetchall())
+print('\nEnrichissement ' + str(len(works)) + ' oeuvres...')
+
+updates = []
+for (title_id,) in works:
+    # Awards
+    aw = awards_map.get(title_id, [])
+    parts = [('🏆' if a['award_level']=='1' else '🏅') +
+             a['award_type_name'] + ' – ' + a['award_cat_name']
+             for a in aw]
+    # Rating/views
+    rv = views_map.get(title_id, (None, None))
+
+    updates.append({
+        'title_id':    title_id,
+        'synopsis':    synopsis_map.get(title_id),
+        'rating':      str(rv[0]) if rv[0] else None,
+        'annualviews': rv[1],
+        'awards':      ' | '.join(parts) if parts else None,
+        'award_count': len(aw),
+        'goodreads_id': goodreads_map.get(title_id),
+        'isfdb_tags':  ', '.join(tags_map.get(title_id, []))  or None,
+        'isfdb_lists': ', '.join(lists_map.get(title_id, [])) or None,
+    })
+
+print('Ecriture...')
+db['works'].upsert_all(updates, pk='title_id')
+print('OK')
+
+# ── 7. Contrôle final ────────────────────────────────────────────────────────
+cur2 = db.execute
+print('\n=== Stats enrichissement ===')
+print('Avec synopsis    :', db.execute('SELECT COUNT(*) FROM works WHERE synopsis IS NOT NULL').fetchone()[0])
+print('Avec awards FK   :', db.execute('SELECT COUNT(*) FROM works WHERE award_count > 0').fetchone()[0])
+print('Avec Goodreads   :', db.execute('SELECT COUNT(*) FROM works WHERE goodreads_id IS NOT NULL').fetchone()[0])
+print('Avec tags        :', db.execute('SELECT COUNT(*) FROM works WHERE isfdb_tags IS NOT NULL').fetchone()[0])
+print('Avec listes ref  :', db.execute('SELECT COUNT(*) FROM works WHERE isfdb_lists IS NOT NULL').fetchone()[0])
+
+print('\n=== Top 10 romans DP EU sans VF ===')
+for r in db.execute("""
+    SELECT title, author, year, rating, annualviews, award_count,
+           isfdb_tags, synopsis
+    FROM works
+    WHERE type='novel' AND dp_eu=1 AND has_french_vf=0
+    ORDER BY annualviews DESC NULLS LAST
+    LIMIT 10
+""").fetchall():
+    print(r)
+
+cn.close()
