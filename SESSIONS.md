@@ -138,3 +138,43 @@
 - Étape 3 (OL → OCLC → HathiTrust) en cours
 
 ### Repo GitHub passé public
+
+### Schéma MariaDB ISFDB — corrections importantes
+Découvertes lors du check awards 1928-1963 :
+
+| Ce qu'on pensait | Réalité |
+|---|---|
+| `title_year` | N'existe pas → `YEAR(title_copyright)` |
+| `title_author` | N'existe pas dans `titles` → join `canonical_author` |
+| `award_level` type INT | C'est `mediumtext` → toujours `CAST(award_level AS UNSIGNED)` |
+| `title_ttype` valeurs | Enum uppercase : `NOVEL`, `SHORTFICTION`, `SS` n'existe pas |
+
+Types valides title_ttype : NOVEL, SHORTFICTION, NOVELETTE absent (→ SHORTFICTION),
+COLLECTION, ANTHOLOGY, CHAPBOOK, SERIAL, OMNIBUS, COVERART, INTERIORART...
+
+award_year est de type DATE (pas INT) → `YEAR(a.award_year)` si besoin.
+
+### Analyse awards 1928-1963 — pépites identifiées
+Requête MariaDB corrigée (YEAR(title_copyright), CAST award_level) révèle
+des Hugo winners absents du catalogue SQLite car dp_us=NULL (script 12 en cours) :
+
+- Way Station — Clifford Simak (1963) 🏆 Hugo
+- The Man in the High Castle — Philip K. Dick (1962) 🏆 Hugo
+- The Long Afternoon of Earth — Brian Aldiss (1962) 🏆 Hugo
+- A Wrinkle in Time — Madeleine L'Engle (1962) 🏆 Newbery
+- Stranger in a Strange Land — Heinlein (1961) 🏆 Hugo + Prometheus
+- Starship Troopers — Heinlein (1959) 🏆 Hugo
+- A Canticle for Leibowitz — Walter M. Miller Jr. (1959) 🏆 Hugo
+- A Case of Conscience — James Blish (1958) 🏆 Hugo
+- A Clockwork Orange — Anthony Burgess (1962) 🏆 Prometheus
+
+Ces œuvres ont dp_eu=0 (auteurs morts après 1955) mais seront dp_us=1
+après fin du script 12 (non renouvelé CCE = DP US légal).
+→ Seront visibles dans le catalogue GUI après fin du 12.
+
+### Chiffres synopsis DP sans VF (état après 10_enrich_night)
+- DP sans VF total     : 29 769
+- Avec synopsis        : 3 651 (12%)
+- Sans synopsis        : 26 118
+  dont wp_searched=1   : 1 269 (Wikipedia tenté, rien trouvé)
+  dont jamais cherché  : 24 849 → priorité batch suivant
