@@ -178,3 +178,25 @@ après fin du script 12 (non renouvelé CCE = DP US légal).
 - Sans synopsis        : 26 118
   dont wp_searched=1   : 1 269 (Wikipedia tenté, rien trouvé)
   dont jamais cherché  : 24 849 → priorité batch suivant
+
+### Chantiers identifiés après check awards/synopsis (session 3 suite)
+
+#### MariaDB — schéma corrigé
+- `title_year` n'existe pas → `YEAR(title_copyright)`
+- `award_level` est mediumtext → toujours `CAST(award_level AS UNSIGNED)`
+- Les critiques ISFDB sont dans `titles` type REVIEW + `title_relationships.review_id`
+  mais sans texte exploitable (juste métadonnées de publication)
+
+#### Script 13_reviews.py — conçu, à lancer après fin du 12
+- Étape 1 : Goodreads scraping (1817 œuvres avec goodreads_id)
+  → gr_rating, gr_votes, gr_toread, gr_reviews_text (JSON, 5 extraits max)
+- Étape 2 : The Guardian API (clé : 8146d1a6-eaaa-4feb-88de-d31af3ae6b6f)
+  → guardian_url, guardian_title, guardian_date, guardian_snippet
+  → ciblé : primés + annualviews>500 + nb_langues_vf>=3 (3000 max)
+- Étape 3 : Ollama gemma3 synthèse critiques GR (si ≥2 reviews scraped)
+  → gr_summary — compression textes réels, pas génération
+
+#### Nouvelles colonnes works prévues par 13_reviews.py
+gr_rating, gr_votes, gr_toread, gr_reviews_text, gr_summary,
+gr_searched, guardian_url, guardian_title, guardian_date,
+guardian_snippet, guardian_searched
