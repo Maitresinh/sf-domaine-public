@@ -1,3 +1,11 @@
+import fcntl, sys
+_lf = open("/app/data/12.lock", "w")
+try:
+    fcntl.flock(_lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except IOError:
+    print("Instance deja en cours. Abandon.")
+    sys.exit(0)
+
 """
 12_dp_us_check.py v2
 """
