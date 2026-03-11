@@ -24,7 +24,7 @@ st.markdown("""
 
 @st.cache_resource
 def get_conn():
-    return sqlite3.connect(DB, check_same_thread=False)
+    return sqlite3.connect(DB, check_same_thread=False, timeout=30)
 
 def query(sql, params=()):
     return pd.read_sql_query(sql, get_conn(), params=params)
