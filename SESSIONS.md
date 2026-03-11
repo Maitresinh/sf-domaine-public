@@ -284,3 +284,34 @@ mag_title, mag_year, mag_issn, ht_mag_code
 2. Réécrire 14_dp_magazines.py avec vraies sources CCE Class B
 3. Intégrer GR/Guardian dans 8_app.py (fiche détail)
 4. Mettre à jour README (stats obsolètes)
+
+### Mécanique juridique copyright magazines — clarification session 4
+
+Loi applicable : Copyright Act 1909 (œuvres 1928-1963)
+Durée : 28 ans + renouvellement 28 ans. Sans renouvellement → DP à 28 ans.
+
+Deux copyrights INDÉPENDANTS :
+  - Magazine (compilation) : Class B, renouvelé par l'éditeur
+  - Nouvelle individuelle : Class A, renouvelée par l'auteur séparément
+
+Règle clé : le renouvellement du magazine NE PROTÈGE PAS les nouvelles individuelles.
+Seul le CCE Class A de l'auteur compte pour chaque nouvelle.
+
+Cas pratique Amazing Stories 1935 :
+  - Compilation : pas renouvelée avant mai 1954 → numéro 1935 = DP compilation
+  - Nouvelle de Asimov dedans : si Asimov a renouvelé en ~1963 → protégée
+  - Nouvelle de auteur obscur : si non renouvelée en ~1963 → DP
+
+Données UPenn acquises :
+  - Amazing Stories : compilation DP avant mai 1954, ~257 contributions renouvelées
+  - Planet Stories : compilation 100% DP (jamais renouvelée), ~66 contributions renouvelées
+  - Famous Fantastic Mysteries : compilation DP avant jan. 1940, ~1 contribution renouvelée
+  - Weird Tales : compilation DP avant fév. 1931
+  - Astounding : compilation DP avant oct. 1933
+
+### 14_dp_magazines.py v2 — stratégie révisée
+Même logique que script 12 étape 1 (romans CCE Class A),
+étendue à la short fiction :
+  - Non trouvé CCE Class A → dp_us=1
+  - Bonus : croiser avec liste contributions renouvelées UPenn par magazine
+  - Résultats v1 (HathiTrust) à effacer et recalculer
