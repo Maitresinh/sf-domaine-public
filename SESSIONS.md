@@ -236,3 +236,51 @@ Volume réel traitable : 215 œuvres (pas 2 595)
 Approche : pour chaque title_id overlap, retrouver le magazine + numéro
 → interroger HathiTrust par titre magazine + année → rightsCode
 → si pd : dp_us=1 sur toutes les nouvelles du numéro dans notre SQLite
+
+## Session 4 — 11 mars 2026 (après-midi)
+
+### Script 13_reviews.py — TERMINÉ (07:27)
+| Métrique | Résultat |
+|---|---|
+| GR rating récupéré | 1816/1817 |
+| GR reviews texte | 1717 |
+| GR summary Ollama | 426 (synthèse critiques GR réelles, PAS de synopsis générés) |
+| Guardian articles | 352 |
+| Note moyenne DP/sVF | 3.49 |
+
+⚠️ Ollama dans 13_reviews.py = synthèse de critiques Goodreads scraped uniquement.
+   Colonne gr_summary ≠ synopsis. Les synopsis viennent exclusivement de ISFDB + Wikipedia.
+
+### Script 14_dp_magazines.py — EN COURS / À REVOIR
+- Fichier créé et lancé
+- Bugs corrigés : LEFT JOIN magazine (colonne inexistante), requête bulk vs boucle 29k, base_mag()
+- Problème fondamental identifié : HathiTrust ic ≠ "protégé" — juste "on ne sait pas"
+- Approche à revoir complètement avant relance
+
+### Révision stratégie DP magazines — PRIORITÉ SESSION 5
+Deux niveaux de copyright distincts :
+  1. Magazine (compilation) — Class B — renouvelé par l'éditeur
+  2. Nouvelles individuelles — Class A — renouvelées par l'auteur séparément
+
+Sources à interroger (jamais fait) :
+  - UPenn firstperiod.html → liste réelle des périodiques ayant renouvelé
+  - UPenn decisions.html → règles légales exactes pour sériaux
+  - Stanford CCE Class B (périodiques) séparé de Class A
+
+Fait en session 4 : curl firstperiod.html + decisions.html → résultats à analyser
+
+Taux de non-renouvellement historique pulps : ~85% (Hirtle, Landes)
+→ La majorité des pulps SF n'ont PAS renouvelé → nouvelles = DP US probable
+
+### Nouvelles colonnes ajoutées par 13_reviews.py
+gr_rating, gr_votes, gr_toread, gr_reviews_text, gr_summary, gr_searched,
+guardian_url, guardian_title, guardian_date, guardian_snippet, guardian_searched
+
+### Nouvelles colonnes ajoutées par 14_dp_magazines.py
+mag_title, mag_year, mag_issn, ht_mag_code
+
+### TODO session 5
+1. Analyser résultats UPenn firstperiod.html + decisions.html
+2. Réécrire 14_dp_magazines.py avec vraies sources CCE Class B
+3. Intégrer GR/Guardian dans 8_app.py (fiche détail)
+4. Mettre à jour README (stats obsolètes)
