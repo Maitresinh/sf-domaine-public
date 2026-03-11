@@ -222,3 +222,17 @@ Notes :
 
 ### Prochaine étape : 13_reviews.py
 Lancer après vérification GUI : Goodreads + Guardian + synthèse Ollama
+
+### Croisement SQLite ↔ magazines MariaDB (test_mag2.py)
+- 35 991 short fiction magazines 1928-1963 dans MariaDB
+- 12 982 short fiction total dans notre SQLite
+- Overlap (dans SQLite ET dans un magazine) : 242
+- Cibles dp_us=NULL dans l'overlap : 215 → pipeline HathiTrust magazines
+- 12 740 short fiction SQLite sans pub_content magazine
+  → publiés en recueil/anthologie, pas en magazine → règle différente
+
+### Conclusion stratégie 14_dp_magazines.py
+Volume réel traitable : 215 œuvres (pas 2 595)
+Approche : pour chaque title_id overlap, retrouver le magazine + numéro
+→ interroger HathiTrust par titre magazine + année → rightsCode
+→ si pd : dp_us=1 sur toutes les nouvelles du numéro dans notre SQLite
