@@ -200,3 +200,25 @@ après fin du script 12 (non renouvelé CCE = DP US légal).
 gr_rating, gr_votes, gr_toread, gr_reviews_text, gr_summary,
 gr_searched, guardian_url, guardian_title, guardian_date,
 guardian_snippet, guardian_searched
+
+### Résultats finaux script 12_dp_us_check.py
+Terminé à 23:37 — deux instances (idempotent, résultat correct)
+
+| Métrique | Avant | Après |
+|---|---|---|
+| dp_us=1 total | 24 079 | 27 686 |
+| source cce_stanford_novel | 0 | 3 591 |
+| source hathitrust | 0 | 87 |
+| dp_us=NULL 1928-1963 | 34 483 | 30 805 |
+| dp_checked=1 | 0 | 37 106 |
+| DP sans VF romans | ~3 158 | 6 486 |
+| DP sans VF primés | 39 | 40 |
+
+Notes :
+- Romans sans VF doublés grâce à règle CCE Class A (étape 1)
+- 30 805 NULL restants = short fiction/novelettes, non couverts (normal)
+- Hugo winners 1928-1963 maintenant dans catalogue mais la plupart ont une VF
+- HathiTrust : 87 confirmations via OCLC (faible — beaucoup sans OCLC dans OL)
+
+### Prochaine étape : 13_reviews.py
+Lancer après vérification GUI : Goodreads + Guardian + synthèse Ollama
