@@ -170,10 +170,4 @@ data/
 - **works_unified.sqlite** → sources multiples (isfdb / openlibrary / dnb / bnf)
 - **Illustrations** : Internet Archive pulps → YOLOv8 → thumbnails 400px → Real-ESRGAN
 
-## Sélection éditoriale prioritaire identifiée
 
-1. Jean Toomer — *Cane* (1923) — DP total, zéro VF FR
-2. Willa Cather — *My Ántonia* (1918) — DP total
-3. Nella Larsen — *Passing* (1929) — DP US probable
-4. Lord Dunsany — œuvres sans VF (à requêter)
-5. Arthur Machen — *The Hill of Dreams* (1907) — DP total
