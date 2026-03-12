@@ -359,3 +359,11 @@ La requête "Dernière VF" (section 2) n'a AUCUN filtre langue :
 - last_vf_year : 3 760
 - avec traducteur : 8 846 (source : notes {{Tr|NOM}})
 - Structure ISFDB confirmée : traducteur = notes.note_note {{Tr|}}, PAS canonical_author
+
+### Scripts enrichissement critiques — lancés 2026-03-12
+- 15_enrich_ia.py : Internet Archive, 42878 cibles DP EU+US sans VF, lancé en arrière-plan
+- 16_enrich_goodreads.py : Goodreads scraping, 46 cibles avec awards sans VF, ~25 min
+- Nouvelles colonnes : ia_identifier, ia_downloads, ia_has_text, ia_searched
+- GR colonnes déjà présentes : gr_rating, gr_votes, gr_reviews_text, gr_summary
+- TODO : 17_enrich_noosfere.py (œuvres avec VF + bios traducteurs)
+- TODO : 18_enrich_sfe3.py (articles critiques SF Encyclopedia)
