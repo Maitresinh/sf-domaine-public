@@ -236,6 +236,7 @@ if page == '🔍 Catalogue':
                w.birth_year, w.death_year, w.birthplace,
                w.nb_editions, w.first_pub_year,
                w.last_vf_year, w.last_vf_publisher, w.last_vf_title,
+               w.first_vf_year, w.first_vf_title, w.last_vf_translator, w.nb_vf_fr,
                COALESCE(e.status,'À évaluer') as status
         FROM works w
         LEFT JOIN editorial e ON w.title_id = e.title_id
@@ -321,9 +322,24 @@ if page == '🔍 Catalogue':
                     if st.button('📚 '+str(r['series']), key='series_detail', help='Filtrer par cette série'):
                         st.session_state.series_filter = str(r['series'])
                         st.session_state.selected = None; st.rerun()
-                if r.get('translator'):  st.markdown('**Traducteur(s)** : '+str(r['translator']))
-                if r.get('langues_vf'):  st.markdown('**Traduit en** : '+str(r['langues_vf']))
-                st.markdown('**VF** : '+('🟢 '+str(r.get('french_title') or 'oui') if r.get('has_french_vf')==1 else '🔴 Non traduit'))
+                if r.get('langues_vf'):
+                    st.markdown('**Traduit en** : '+str(r['langues_vf']))
+
+                if r.get('has_french_vf') == 1:
+                    vf_parts = []
+                    if r.get('first_vf_title'):  vf_parts.append('*'+str(r['first_vf_title'])+'*')
+                    elif r.get('last_vf_title'): vf_parts.append('*'+str(r['last_vf_title'])+'*')
+                    st.markdown('**🇫🇷 VF** : 🟢 ' + (' — '.join(vf_parts) if vf_parts else 'oui'))
+                    vf_cols = st.columns(3)
+                    vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
+                    vf_cols[1].metric('Dernière VF', r.get('last_vf_year')  or '—')
+                    vf_cols[2].metric('Nb éditions FR', r.get('nb_vf_fr')   or '—')
+                    if r.get('last_vf_publisher'):
+                        st.caption('🏢 Éditeur (dernière éd.) : '+str(r['last_vf_publisher']))
+                    if r.get('last_vf_translator'):
+                        st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
+                else:
+                    st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
 
             with c2:
                 if r.get('annualviews'):    st.metric('Vues ISFDB/an', int(r['annualviews']))
@@ -519,12 +535,9 @@ if page == '🔍 Catalogue':
 
             # ── Éditions ─────────────────────────────────────────────────────
             st.markdown('---'); st.markdown('**📚 Éditions**')
-            ed1,ed2,ed3,ed4 = st.columns(4)
-            ed1.metric('Nb éditions',  r.get('nb_editions')    or '—')
-            ed2.metric('1ère pub.',    r.get('first_pub_year') or '—')
-            ed3.metric('Dernière VF',  r.get('last_vf_year')   or '—')
-            ed4.metric('Éditeur VF',   str(r.get('last_vf_publisher') or '—')[:20])
-            if r.get('last_vf_title'): st.caption('Titre VF : '+str(r['last_vf_title']))
+            ed1, ed2 = st.columns(2)
+            ed1.metric('Nb éditions toutes langues', r.get('nb_editions')    or '—')
+            ed2.metric('1ère publication',           r.get('first_pub_year') or '—')
 
             # ── Chargement enrichi ────────────────────────────────────────────
             st.markdown('---')
