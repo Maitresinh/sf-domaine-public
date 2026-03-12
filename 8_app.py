@@ -515,6 +515,22 @@ if page == '🔍 Catalogue':
                     if str(r['gr_reviews_text']).strip():
                         st.caption(str(r['gr_reviews_text'])[:200])
 
+            # Critiques noosfere.org
+            noo_critiques = get_conn().execute("""
+                SELECT nt.chroniqueur, nt.texte
+                FROM noosfere_textes nt
+                JOIN noosfere_critiques nc ON nc.numlivre = nt.numlivre
+                WHERE nc.title_id = ? AND nt.texte IS NOT NULL AND nt.is_serie = 0
+                ORDER BY nt.id
+            """, (r['title_id'],)).fetchall()
+            if noo_critiques:
+                with st.expander(f'📰 Critiques noosfere.org ({len(noo_critiques)})'):
+                    for crit in noo_critiques:
+                        if crit[0]:
+                            st.markdown(f'**{crit[0]}**')
+                        st.markdown(str(crit[1])[:1500]+(' …' if len(str(crit[1]))>1500 else ''))
+                        st.markdown('---')
+
             # Description Open Library
             if r.get('ol_description'):
                 with st.expander('📖 Description Open Library'):
@@ -522,6 +538,11 @@ if page == '🔍 Catalogue':
 
             # Liens critiques
             links_crit = []
+            noo_num = get_conn().execute(
+                "SELECT numlivre FROM noosfere_critiques WHERE title_id=? LIMIT 1",
+                (r['title_id'],)).fetchone()
+            if noo_num:
+                links_crit.append('[noosfere.org](https://www.noosfere.org/livres/niourf.asp?numlivre='+str(noo_num[0])+')')
             if r.get('nb_reviews') and int(r['nb_reviews'])>0:
                 links_crit.append('[Critiques ISFDB](https://www.isfdb.org/cgi-bin/title.cgi?'+str(r['title_id'])+'#reviews)')
             if r.get('goodreads_id'):
