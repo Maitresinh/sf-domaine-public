@@ -87,7 +87,7 @@ for k, v in {
     'tags_include':[], 'tags_exclude':[], 'tags_mode':'ET',
     'series_filter':'',
     'award_levels':[], 'award_names':[],
-    'selected':None, 'selected_author':None, 'page':'🔍 Catalogue',
+    'selected':None, 'selected_author':None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -98,12 +98,419 @@ with st.sidebar:
     page = st.radio('Navigation', [
         '🔍 Catalogue','👤 Auteurs','📅 Prévisions DP',
         '📋 Sélection éditoriale','📊 Stats'
-    ], index=['🔍 Catalogue','👤 Auteurs','📅 Prévisions DP','📋 Sélection éditoriale','📊 Stats'].index(st.session_state.page))
-    st.session_state.page = page
+    ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE CATALOGUE
 # ═══════════════════════════════════════════════════════════════════════════════
+# ── Fiche detail dialog ─────────────────────────────────────────────────────
+@st.dialog("Fiche detail", width="large")
+def show_fiche(r):
+    title_q     = str(r.get("title",""))
+    author_q    = str(r.get("author",""))
+    title_slug  = title_q.replace(" ","+")
+    author_slug = author_q.replace(" ","+")
+    title_q     = str(r.get('title',''))
+    author_q    = str(r.get('author',''))
+    title_slug  = title_q.replace(' ','+')
+    author_slug = author_q.replace(' ','+')
+
+    with st.expander('📄 '+title_q, expanded=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('**Auteur** : '+author_q)
+            if r.get('birth_year') or r.get('death_year'):
+                bio = str(r.get('birth_year') or '?')+' – '+str(r.get('death_year') or 'vivant')
+                if r.get('birthplace'): bio += ' · '+str(r['birthplace'])
+                st.caption('🗓 '+bio)
+            st.markdown('**Année** : '+str(r['year']))
+            st.markdown('**Type** : '+str(r.get('work_type',r.get('type','?'))))
+            if r.get('series'):
+                if st.button('📚 '+str(r['series']), key='series_detail', help='Filtrer par cette série'):
+                    st.session_state.series_filter = str(r['series'])
+                    st.session_state.selected = None; st.rerun()
+            if r.get('langues_vf'):
+                st.markdown('**Traduit en** : '+str(r['langues_vf']))
+
+            if r.get('has_french_vf') == 1:
+                vf_parts = []
+                if r.get('first_vf_title'):  vf_parts.append('*'+str(r['first_vf_title'])+'*')
+                elif r.get('last_vf_title'): vf_parts.append('*'+str(r['last_vf_title'])+'*')
+                st.markdown('**🇫🇷 VF** : 🟢 ' + (' — '.join(vf_parts) if vf_parts else 'oui'))
+                vf_cols = st.columns(3)
+                vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
+                vf_cols[1].metric('Dernière VF', r.get('last_vf_year')  or '—')
+                vf_cols[2].metric('Nb éditions FR', r.get('nb_vf_fr')   or '—')
+                if r.get('last_vf_publisher'):
+                    st.caption('🏢 Éditeur (dernière éd.) : '+str(r['last_vf_publisher']))
+                if r.get('last_vf_translator'):
+                    st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
+            else:
+                st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
+
+        with c2:
+            if r.get('annualviews'):    st.metric('Vues ISFDB/an', int(r['annualviews']))
+            if r.get('fantlab_rating'): st.metric('FantLab', str(r['fantlab_rating'])+' ('+str(r.get('fantlab_votes','?'))+' votes)')
+            if r.get('nb_reviews'):     st.metric('Critiques ISFDB', r['nb_reviews'])
+            if r.get('rating'):         st.metric('Note ISFDB', r['rating'])
+
+        # ── État du droit ────────────────────────────────────────────────
+        st.markdown('---')
+        st.markdown('### ⚖️ Analyse du droit')
+
+        # Europe
+        st.markdown('**🇪🇺 Droit européen (directive 2006/116/CE)**')
+        if r.get('dp_eu') == 1:
+            death = r.get('death_year') or '?'
+            dp_eu_since = int(death) + 71 if isinstance(death, (int, float)) and death != '?' else '?'
+            st.success(
+                f"✅ Domaine public en Europe depuis le 1er janvier {dp_eu_since}. "
+                f"L'auteur est décédé en {death} ; ses œuvres tombent dans le domaine public "
+                "70 ans après sa mort (art. 1 de la directive européenne 2006/116/CE).")
+        else:
+            st.error("🔒 Protégé en Europe — l'auteur est décédé après 1955 ou la date de décès est inconnue.")
+
+        # France
+        st.markdown('**🇫🇷 Droit français (prorogation de guerre)**')
+        if r.get('dp_fr') == 1:
+            st.success(
+                "✅ Domaine public en France. L'auteur est décédé avant 1948 : "
+                "la prorogation de guerre française (+8 ans et 120 jours, art. L123-8 CPI) "
+                "est épuisée, l'œuvre est libre de droits sur le territoire français.")
+        elif r.get('dp_eu') == 1:
+            death = r.get('death_year') or 0
+            if death and int(death) >= 1948:
+                st.warning(
+                    f"⚠️ Domaine public EU mais prorogation de guerre à vérifier. "
+                    f"L'auteur est décédé en {death}. Si ressortissant d'un pays "
+                    "en guerre avec la France (Allemagne, Italie, Japon…), "
+                    "une prorogation de +8 ans et 120 jours peut s'appliquer (art. L123-8 CPI).")
+            else:
+                st.info("ℹ️ Date de décès manquante — statut France non calculable.")
+        else:
+            st.error("🔒 Protégé en France (œuvre protégée en Europe).")
+
+        # États-Unis
+        st.markdown('**🇺🇸 Droit américain (Copyright Act)**')
+        src    = r.get('dp_us_source') or ''
+        reason = r.get('dp_us_reason') or ''
+        year   = int(r.get('year') or 0)
+
+        if r.get('dp_us') == 1:
+            if not src and year < 1928:
+                st.success(
+                    f"✅ Domaine public aux États-Unis. Publication en {year}, "
+                    "soit avant le 1er janvier 1928 : toutes les œuvres publiées "
+                    "avant cette date sont automatiquement dans le domaine public américain, "
+                    "sans condition de renouvellement (Copyright Act de 1976, §304).")
+            elif src == 'cce_stanford_novel':
+                st.success(
+                    f"✅ Domaine public aux États-Unis. Roman publié en {year} "
+                    "(période 1923–1963) : aucun renouvellement de copyright n'a été trouvé "
+                    "dans le Catalogue of Copyright Entries (CCE) numérisé par Stanford. "
+                    "Sous le Copyright Act de 1909, le copyright initial de 28 ans devait "
+                    "être renouvelé auprès du Copyright Office ; faute de renouvellement, "
+                    "l'œuvre est tombée dans le domaine public à l'expiration du premier terme.")
+            elif src == 'cce_magazine_shortfiction':
+                mag = r.get('mag_title') or 'magazine inconnu'
+                mag_year = r.get('mag_year') or year
+                st.success(
+                    f"✅ Domaine public aux États-Unis. Nouvelle publiée en {mag_year} "
+                    f"dans *{mag}*. Aucun renouvellement individuel n'a été trouvé dans le CCE "
+                    "(Stanford) ni dans les contributions indexées par l'Online Books Page (UPenn). "
+                    "La compilation du magazine n'a pas non plus été renouvelée pour la période "
+                    "concernée. Sous le Copyright Act de 1909, faute de renouvellement dans les "
+                    "28 ans, l'œuvre est tombée dans le domaine public.")
+                if 'Convention de Berne' in reason:
+                    st.info(
+                        "📌 Convention de Berne : le non-renouvellement du copyright américain "
+                        "(durée effective : 28 ans) est reconnu par les pays signataires. "
+                        "L'œuvre est également considérée comme domaine public en Europe "
+                        "par application de la règle du traitement national.")
+            elif src == 'hathitrust':
+                st.success(
+                    "✅ Domaine public aux États-Unis, confirmé par HathiTrust Digital Library. "
+                    "HathiTrust a vérifié le statut de droits de cette œuvre (code : pd) "
+                    "et la met à disposition librement sur sa plateforme.")
+            else:
+                st.success(f"✅ Domaine public aux États-Unis (publication en {year}).")
+
+        elif r.get('dp_us') == 0:
+            if src == 'cce_upenn_magazine':
+                st.error(
+                    "🔒 Protégé aux États-Unis. Un renouvellement de copyright a été trouvé "
+                    "dans le CCE (Stanford) ou dans les contributions indexées par UPenn "
+                    "pour ce magazine. Le copyright a été renouvelé dans les délais légaux.")
+            elif src == 'hathitrust':
+                st.error("🔒 Protégé aux États-Unis, confirmé par HathiTrust Digital Library.")
+            elif not src and year > 1963:
+                st.error(
+                    f"🔒 Protégé aux États-Unis. Publication en {year}, après 1963 : "
+                    "sous le Copyright Act de 1976 et le Sonny Bono Act de 1998, "
+                    "les œuvres publiées après 1963 sont protégées pendant 95 ans "
+                    "à compter de la publication.")
+            else:
+                st.error("🔒 Protégé aux États-Unis.")
+        else:
+            if 1928 <= year <= 1963:
+                st.warning(
+                    f"❓ Statut américain non vérifié. Publication en {year} "
+                    "(période 1923–1963) : une vérification dans le Catalogue of Copyright "
+                    "Entries est nécessaire pour confirmer si le copyright a été renouvelé.")
+            else:
+                st.warning("❓ Statut américain non déterminé.")
+
+        # Détail technique
+        if reason or src:
+            with st.expander('🔍 Détail technique'):
+                st.caption(f"**Source de vérification :** {src or 'non renseignée'}")
+                if reason: st.caption(f"**Motif enregistré :** {reason}")
+                if r.get('mag_title'):
+                    st.caption(f"**Magazine :** {r['mag_title']}"
+                               + (f" ({r['mag_year']})" if r.get('mag_year') else ''))
+
+
+        # ── Awards ───────────────────────────────────────────────────────
+        if r.get('awards') and r.get('award_count') and int(r.get('award_count') or 0) > 0:
+            st.markdown('**🏆 Awards**')
+            for aw in str(r['awards']).split(' | '):
+                if aw.strip(): st.markdown('- '+aw.strip())
+        if r.get('isfdb_lists'):
+            st.markdown('**Listes de référence** : '+str(r['isfdb_lists']))
+
+        # Tags cliquables
+        if r.get('isfdb_tags'):
+            st.markdown('**Tags** — clic pour ajouter/retirer du filtre')
+            tag_list = [t.strip() for t in str(r['isfdb_tags']).split(',') if t.strip()]
+            t_cols = st.columns(min(len(tag_list),6))
+            for ti, tag in enumerate(tag_list):
+                active = tag in st.session_state.tags_include
+                with t_cols[ti%6]:
+                    lbl = ('✅ ' if active else '')+tag
+                    if st.button(lbl, key=f'ftag_{r["title_id"]}_{ti}'):
+                        if active:
+                            st.session_state.tags_include = [t for t in st.session_state.tags_include if t!=tag]
+                        else:
+                            st.session_state.tags_include = st.session_state.tags_include+[tag]
+                        st.session_state.selected = None; st.rerun()
+
+        if r.get('synopsis'):
+            st.markdown('**Synopsis** (ISFDB)'); st.info(str(r['synopsis']))
+
+        # ── Critiques & Évaluations ───────────────────────────────────────
+        st.markdown('---')
+        st.markdown('**📊 Critiques & Évaluations**')
+        cr1,cr2,cr3,cr4,cr5 = st.columns(5)
+        cr1.metric('Note ISFDB',   r.get('rating')         or '—')
+        cr2.metric('Goodreads',    r.get('gr_rating')      or '—')
+        cr3.metric('FantLab',      r.get('fantlab_rating') or '—')
+        cr4.metric('Open Library', r.get('ol_rating')      or '—')
+        cr5.metric('Vues/an',      int(r['annualviews']) if r.get('annualviews') else '—')
+
+        # Snippets Goodreads
+        if r.get('gr_reviews_text'):
+            import json as _json
+            try:
+                snippets = _json.loads(r['gr_reviews_text'])
+                if snippets and len(snippets) > 0:
+                    with st.expander(f'💬 Extraits Goodreads ({len(snippets)} avis)'):
+                        for s in snippets[:5]:
+                            if str(s).strip():
+                                st.markdown('> '+str(s)[:300])
+                                st.markdown('---')
+            except Exception:
+                if str(r['gr_reviews_text']).strip():
+                    st.caption(str(r['gr_reviews_text'])[:200])
+
+        # Critiques noosfere.org
+        noo_critiques = get_conn().execute("""
+            SELECT nt.chroniqueur, nt.texte
+            FROM noosfere_textes nt
+            JOIN noosfere_critiques nc ON nc.numlivre = nt.numlivre
+            WHERE nc.title_id = ? AND nt.texte IS NOT NULL AND nt.is_serie = 0
+            ORDER BY nt.id
+        """, (r['title_id'],)).fetchall()
+        if noo_critiques:
+            with st.expander(f'📰 Critiques noosfere.org ({len(noo_critiques)})'):
+                for crit in noo_critiques:
+                    if crit[0]:
+                        st.markdown(f'**{crit[0]}**')
+                    st.markdown(str(crit[1])[:1500]+(' …' if len(str(crit[1]))>1500 else ''))
+                    st.markdown('---')
+
+        # Description Open Library
+        if r.get('ol_description'):
+            with st.expander('📖 Description Open Library'):
+                st.info(str(r['ol_description'])[:600])
+
+        # Liens critiques
+        links_crit = []
+        noo_num = get_conn().execute(
+            "SELECT numlivre FROM noosfere_critiques WHERE title_id=? LIMIT 1",
+            (r['title_id'],)).fetchone()
+        if noo_num:
+            links_crit.append('[noosfere.org](https://www.noosfere.org/livres/niourf.asp?numlivre='+str(noo_num[0])+')')
+        if r.get('nb_reviews') and int(r['nb_reviews'])>0:
+            links_crit.append('[Critiques ISFDB](https://www.isfdb.org/cgi-bin/title.cgi?'+str(r['title_id'])+'#reviews)')
+        if r.get('goodreads_id'):
+            links_crit.append('[Goodreads](https://www.goodreads.com/book/show/'+str(r['goodreads_id'])+')')
+        if r.get('fantlab_url'):
+            links_crit.append('[FantLab]('+str(r['fantlab_url'])+')')
+        else:
+            links_crit.append('[FantLab 🔍](https://fantlab.ru/search?q='+title_slug+')')
+        links_crit.append('[LibraryThing](https://www.librarything.com/search.php?term='+title_slug+'&searchthing=work)')
+        if links_crit: st.markdown('  ·  '.join(links_crit))
+
+        # ── Éditions ─────────────────────────────────────────────────────
+        st.markdown('---'); st.markdown('**📚 Éditions**')
+        ed1, ed2 = st.columns(2)
+        ed1.metric('Nb éditions toutes langues', r.get('nb_editions')    or '—')
+        ed2.metric('1ère publication',           r.get('first_pub_year') or '—')
+
+        # ── Chargement enrichi ────────────────────────────────────────────
+        st.markdown('---')
+        load_key = 'loaded_'+str(r['title_id'])
+        if load_key not in st.session_state: st.session_state[load_key] = None
+
+        if st.button('🔄 Charger bio, éditions, critiques', key='load_'+str(r['title_id'])):
+            import requests as req
+            loaded = {}
+            try:
+                wp = req.get('https://en.wikipedia.org/api/rest_v1/page/summary/'+author_q.replace(' ','_'), timeout=6)
+                if wp.status_code==200:
+                    wpd = wp.json()
+                    if wpd.get('extract') and len(wpd['extract'])>100:
+                        loaded['author_bio']    = wpd.get('extract','')[:800]
+                        loaded['author_desc']   = wpd.get('description','')
+                        loaded['author_thumb']  = wpd.get('thumbnail',{}).get('source')
+                        loaded['author_wp_url'] = wpd.get('content_urls',{}).get('desktop',{}).get('page','')
+            except Exception: pass
+
+            if r.get('translator'):
+                trans_bios = []
+                for chunk in str(r['translator']).split(';'):
+                    name = chunk.split('(')[0].strip()
+                    if not name: continue
+                    for lang in ['en','fr']:
+                        try:
+                            wpt = req.get(f'https://{lang}.wikipedia.org/api/rest_v1/page/summary/'+name.replace(' ','_'), timeout=5)
+                            if wpt.status_code==200:
+                                td = wpt.json()
+                                if td.get('extract') and len(td['extract'])>50:
+                                    trans_bios.append({'name':name,'desc':td.get('description',''),'extract':td['extract'][:300]})
+                                    break
+                        except Exception: pass
+                loaded['trans_bios'] = trans_bios
+
+            if not r.get('synopsis'):
+                for slug in [title_q.replace(' ','_'),
+                             title_q.replace(' ','_')+'_('+author_q.split()[-1]+'_novel)',
+                             title_q.replace(' ','_')+'_(novel)']:
+                    try:
+                        wps = req.get('https://en.wikipedia.org/api/rest_v1/page/summary/'+slug, timeout=6)
+                        if wps.status_code==200:
+                            wpsd = wps.json()
+                            ex = wpsd.get('extract','')
+                            if ex and len(ex)>100 and wpsd.get('type')=='standard':
+                                loaded['wp_synopsis']     = ex[:800]
+                                loaded['wp_synopsis_url'] = wpsd.get('content_urls',{}).get('desktop',{}).get('page','')
+                                break
+                    except Exception: pass
+
+            try:
+                ol = req.get('https://openlibrary.org/search.json',
+                             params={'title':title_q,'author':author_q,'limit':1}, timeout=8)
+                docs = ol.json().get('docs',[])
+                if docs:
+                    d = docs[0]
+                    loaded['ol'] = {
+                        'editions':   d.get('edition_count','?'),
+                        'first_year': d.get('first_publish_year','?'),
+                        'rating':     str(round(d['ratings_average'],1)) if d.get('ratings_average') else '—',
+                        'votes':      d.get('ratings_count','—'),
+                        'subjects':   ', '.join(d.get('subject',[])[:12]),
+                        'url':        'https://openlibrary.org'+d.get('key',''),
+                    }
+            except Exception: pass
+
+            st.session_state[load_key] = loaded; st.rerun()
+
+        if st.session_state.get(load_key):
+            loaded = st.session_state[load_key]
+            if loaded.get('author_bio'):
+                st.markdown('### 👤 '+author_q)
+                cb1,cb2 = st.columns([3,1])
+                with cb1:
+                    st.info(loaded['author_bio']); st.caption(loaded.get('author_desc',''))
+                    wp_url = loaded.get('author_wp_url','')
+                    if wp_url:
+                        st.markdown('[Wikipedia EN]('+wp_url+')  ·  [Wikipedia FR]('+wp_url.replace('en.wikipedia.org','fr.wikipedia.org')+')')
+                with cb2:
+                    if loaded.get('author_thumb'): st.image(loaded['author_thumb'], width=120)
+
+            if loaded.get('trans_bios'):
+                st.markdown('### 🖊️ Traducteur(s)')
+                for tb in loaded['trans_bios']:
+                    st.markdown('**'+tb['name']+'** — '+tb['desc']); st.caption(tb['extract'])
+
+            if loaded.get('wp_synopsis'):
+                st.markdown('### 📖 Synopsis (Wikipedia)'); st.info(loaded['wp_synopsis'])
+                if loaded.get('wp_synopsis_url'):
+                    st.markdown('[→ Article Wikipedia]('+loaded['wp_synopsis_url']+')')
+
+            if loaded.get('ol'):
+                ol = loaded['ol']; st.markdown('### 📚 Open Library')
+                o1,o2,o3,o4 = st.columns(4)
+                o1.metric('Éditions',ol['editions']); o2.metric('1ère éd.',ol['first_year'])
+                o3.metric('Note OL',ol['rating']);    o4.metric('Votes OL',ol['votes'])
+                if ol['subjects']: st.caption('Sujets : '+ol['subjects'])
+                st.markdown('[→ Open Library]('+ol['url']+')')
+
+        # ── Liens ─────────────────────────────────────────────────────────
+        st.markdown('---'); st.markdown('**🔗 Liens**')
+        lc1,lc2,lc3 = st.columns(3)
+        with lc1:
+            st.markdown('**Sources**')
+            st.markdown('🔹 [ISFDB titre](https://www.isfdb.org/cgi-bin/title.cgi?'+str(r['title_id'])+')')
+            st.markdown('🔹 [ISFDB auteur](https://www.isfdb.org/cgi-bin/ea.cgi?'+author_slug+')')
+            if r.get('wikipedia_url'):
+                st.markdown('🔹 [Wikipedia EN]('+str(r['wikipedia_url'])+')')
+                st.markdown('🔹 [Wikipedia FR]('+str(r['wikipedia_url']).replace('en.wikipedia.org','fr.wikipedia.org')+')')
+        with lc2:
+            st.markdown('**Avis lecteurs**')
+            if r.get('goodreads_id'):
+                gid = str(r['goodreads_id'])
+                st.markdown('🔹 [Goodreads](https://www.goodreads.com/book/show/'+gid+')')
+                st.markdown('🔹 [Goodreads critiques](https://www.goodreads.com/book/reviews/'+gid+')')
+            st.markdown('🔹 [Open Library](https://openlibrary.org/search?title='+title_slug+'&author='+author_slug+')')
+            st.markdown('🔹 [FantLab 🇷🇺](https://fantlab.ru/search?q='+title_slug+')')
+            st.markdown('🔹 [LibraryThing](https://www.librarything.com/search.php?term='+title_slug+'&searchthing=work)')
+        with lc3:
+            st.markdown('**Texte en ligne**')
+            st.markdown('🔹 [Project Gutenberg](https://www.gutenberg.org/ebooks/search/?query='+title_slug+'+'+author_slug+')')
+            st.markdown('🔹 [Internet Archive](https://archive.org/search?query='+title_slug+'+'+author_slug+')')
+            st.markdown('🔹 [Standard Ebooks](https://standardebooks.org/ebooks?query='+title_slug+')')
+            if r.get('goodreads_id'):
+                st.markdown('🔹 [WorldCat](https://www.worldcat.org/search?q='+title_slug+'+'+author_slug+')')
+
+        # ── Note éditoriale ───────────────────────────────────────────────
+        st.markdown('---')
+        ex = query('SELECT note FROM editorial WHERE title_id=?', (int(r['title_id']),))
+        cur_note = ex.iloc[0]['note'] if len(ex)>0 and ex.iloc[0]['note'] else ''
+        note = st.text_area('Note éditoriale', value=cur_note, key='n_'+str(r['title_id']))
+        if st.button('Sauvegarder'):
+            run("""INSERT INTO editorial (title_id,note,updated_at) VALUES(?,?,datetime('now'))
+                   ON CONFLICT(title_id) DO UPDATE SET note=excluded.note,updated_at=excluded.updated_at""",
+                (int(r['title_id']),note))
+            st.success('✅ Sauvegardé')
+        if st.button('🚀 Envoyer à Turjman'):
+            st.info('POST /jobs — title_id='+str(r['title_id'])+' · '+title_q+' · '+author_q)
+
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # PAGE AUTEURS
+    # ═══════════════════════════════════════════════════════════════════════════════
+
+
 if page == '🔍 Catalogue':
     with st.sidebar:
         st.subheader('Filtres')
@@ -303,406 +710,7 @@ if page == '🔍 Catalogue':
 
     # ── Fiche détail ──────────────────────────────────────────────────────────
     if st.session_state.selected:
-        r = st.session_state.selected
-        title_q     = str(r.get('title',''))
-        author_q    = str(r.get('author',''))
-        title_slug  = title_q.replace(' ','+')
-        author_slug = author_q.replace(' ','+')
-
-        with st.expander('📄 '+title_q, expanded=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown('**Auteur** : '+author_q)
-                if r.get('birth_year') or r.get('death_year'):
-                    bio = str(r.get('birth_year') or '?')+' – '+str(r.get('death_year') or 'vivant')
-                    if r.get('birthplace'): bio += ' · '+str(r['birthplace'])
-                    st.caption('🗓 '+bio)
-                st.markdown('**Année** : '+str(r['year']))
-                st.markdown('**Type** : '+str(r.get('work_type',r.get('type','?'))))
-                if r.get('series'):
-                    if st.button('📚 '+str(r['series']), key='series_detail', help='Filtrer par cette série'):
-                        st.session_state.series_filter = str(r['series'])
-                        st.session_state.selected = None; st.rerun()
-                if r.get('langues_vf'):
-                    st.markdown('**Traduit en** : '+str(r['langues_vf']))
-
-                if r.get('has_french_vf') == 1:
-                    vf_parts = []
-                    if r.get('first_vf_title'):  vf_parts.append('*'+str(r['first_vf_title'])+'*')
-                    elif r.get('last_vf_title'): vf_parts.append('*'+str(r['last_vf_title'])+'*')
-                    st.markdown('**🇫🇷 VF** : 🟢 ' + (' — '.join(vf_parts) if vf_parts else 'oui'))
-                    vf_cols = st.columns(3)
-                    vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
-                    vf_cols[1].metric('Dernière VF', r.get('last_vf_year')  or '—')
-                    vf_cols[2].metric('Nb éditions FR', r.get('nb_vf_fr')   or '—')
-                    if r.get('last_vf_publisher'):
-                        st.caption('🏢 Éditeur (dernière éd.) : '+str(r['last_vf_publisher']))
-                    if r.get('last_vf_translator'):
-                        st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
-                else:
-                    st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
-
-            with c2:
-                if r.get('annualviews'):    st.metric('Vues ISFDB/an', int(r['annualviews']))
-                if r.get('fantlab_rating'): st.metric('FantLab', str(r['fantlab_rating'])+' ('+str(r.get('fantlab_votes','?'))+' votes)')
-                if r.get('nb_reviews'):     st.metric('Critiques ISFDB', r['nb_reviews'])
-                if r.get('rating'):         st.metric('Note ISFDB', r['rating'])
-
-            # ── État du droit ────────────────────────────────────────────────
-            st.markdown('---')
-            st.markdown('### ⚖️ Analyse du droit')
-
-            # Europe
-            st.markdown('**🇪🇺 Droit européen (directive 2006/116/CE)**')
-            if r.get('dp_eu') == 1:
-                death = r.get('death_year') or '?'
-                dp_eu_since = int(death) + 71 if isinstance(death, (int, float)) and death != '?' else '?'
-                st.success(
-                    f"✅ Domaine public en Europe depuis le 1er janvier {dp_eu_since}. "
-                    f"L'auteur est décédé en {death} ; ses œuvres tombent dans le domaine public "
-                    "70 ans après sa mort (art. 1 de la directive européenne 2006/116/CE).")
-            else:
-                st.error("🔒 Protégé en Europe — l'auteur est décédé après 1955 ou la date de décès est inconnue.")
-
-            # France
-            st.markdown('**🇫🇷 Droit français (prorogation de guerre)**')
-            if r.get('dp_fr') == 1:
-                st.success(
-                    "✅ Domaine public en France. L'auteur est décédé avant 1948 : "
-                    "la prorogation de guerre française (+8 ans et 120 jours, art. L123-8 CPI) "
-                    "est épuisée, l'œuvre est libre de droits sur le territoire français.")
-            elif r.get('dp_eu') == 1:
-                death = r.get('death_year') or 0
-                if death and int(death) >= 1948:
-                    st.warning(
-                        f"⚠️ Domaine public EU mais prorogation de guerre à vérifier. "
-                        f"L'auteur est décédé en {death}. Si ressortissant d'un pays "
-                        "en guerre avec la France (Allemagne, Italie, Japon…), "
-                        "une prorogation de +8 ans et 120 jours peut s'appliquer (art. L123-8 CPI).")
-                else:
-                    st.info("ℹ️ Date de décès manquante — statut France non calculable.")
-            else:
-                st.error("🔒 Protégé en France (œuvre protégée en Europe).")
-
-            # États-Unis
-            st.markdown('**🇺🇸 Droit américain (Copyright Act)**')
-            src    = r.get('dp_us_source') or ''
-            reason = r.get('dp_us_reason') or ''
-            year   = int(r.get('year') or 0)
-
-            if r.get('dp_us') == 1:
-                if not src and year < 1928:
-                    st.success(
-                        f"✅ Domaine public aux États-Unis. Publication en {year}, "
-                        "soit avant le 1er janvier 1928 : toutes les œuvres publiées "
-                        "avant cette date sont automatiquement dans le domaine public américain, "
-                        "sans condition de renouvellement (Copyright Act de 1976, §304).")
-                elif src == 'cce_stanford_novel':
-                    st.success(
-                        f"✅ Domaine public aux États-Unis. Roman publié en {year} "
-                        "(période 1923–1963) : aucun renouvellement de copyright n'a été trouvé "
-                        "dans le Catalogue of Copyright Entries (CCE) numérisé par Stanford. "
-                        "Sous le Copyright Act de 1909, le copyright initial de 28 ans devait "
-                        "être renouvelé auprès du Copyright Office ; faute de renouvellement, "
-                        "l'œuvre est tombée dans le domaine public à l'expiration du premier terme.")
-                elif src == 'cce_magazine_shortfiction':
-                    mag = r.get('mag_title') or 'magazine inconnu'
-                    mag_year = r.get('mag_year') or year
-                    st.success(
-                        f"✅ Domaine public aux États-Unis. Nouvelle publiée en {mag_year} "
-                        f"dans *{mag}*. Aucun renouvellement individuel n'a été trouvé dans le CCE "
-                        "(Stanford) ni dans les contributions indexées par l'Online Books Page (UPenn). "
-                        "La compilation du magazine n'a pas non plus été renouvelée pour la période "
-                        "concernée. Sous le Copyright Act de 1909, faute de renouvellement dans les "
-                        "28 ans, l'œuvre est tombée dans le domaine public.")
-                    if 'Convention de Berne' in reason:
-                        st.info(
-                            "📌 Convention de Berne : le non-renouvellement du copyright américain "
-                            "(durée effective : 28 ans) est reconnu par les pays signataires. "
-                            "L'œuvre est également considérée comme domaine public en Europe "
-                            "par application de la règle du traitement national.")
-                elif src == 'hathitrust':
-                    st.success(
-                        "✅ Domaine public aux États-Unis, confirmé par HathiTrust Digital Library. "
-                        "HathiTrust a vérifié le statut de droits de cette œuvre (code : pd) "
-                        "et la met à disposition librement sur sa plateforme.")
-                else:
-                    st.success(f"✅ Domaine public aux États-Unis (publication en {year}).")
-
-            elif r.get('dp_us') == 0:
-                if src == 'cce_upenn_magazine':
-                    st.error(
-                        "🔒 Protégé aux États-Unis. Un renouvellement de copyright a été trouvé "
-                        "dans le CCE (Stanford) ou dans les contributions indexées par UPenn "
-                        "pour ce magazine. Le copyright a été renouvelé dans les délais légaux.")
-                elif src == 'hathitrust':
-                    st.error("🔒 Protégé aux États-Unis, confirmé par HathiTrust Digital Library.")
-                elif not src and year > 1963:
-                    st.error(
-                        f"🔒 Protégé aux États-Unis. Publication en {year}, après 1963 : "
-                        "sous le Copyright Act de 1976 et le Sonny Bono Act de 1998, "
-                        "les œuvres publiées après 1963 sont protégées pendant 95 ans "
-                        "à compter de la publication.")
-                else:
-                    st.error("🔒 Protégé aux États-Unis.")
-            else:
-                if 1928 <= year <= 1963:
-                    st.warning(
-                        f"❓ Statut américain non vérifié. Publication en {year} "
-                        "(période 1923–1963) : une vérification dans le Catalogue of Copyright "
-                        "Entries est nécessaire pour confirmer si le copyright a été renouvelé.")
-                else:
-                    st.warning("❓ Statut américain non déterminé.")
-
-            # Détail technique
-            if reason or src:
-                with st.expander('🔍 Détail technique'):
-                    st.caption(f"**Source de vérification :** {src or 'non renseignée'}")
-                    if reason: st.caption(f"**Motif enregistré :** {reason}")
-                    if r.get('mag_title'):
-                        st.caption(f"**Magazine :** {r['mag_title']}"
-                                   + (f" ({r['mag_year']})" if r.get('mag_year') else ''))
-
-
-            # ── Awards ───────────────────────────────────────────────────────
-            if r.get('awards') and r.get('award_count') and int(r.get('award_count') or 0) > 0:
-                st.markdown('**🏆 Awards**')
-                for aw in str(r['awards']).split(' | '):
-                    if aw.strip(): st.markdown('- '+aw.strip())
-            if r.get('isfdb_lists'):
-                st.markdown('**Listes de référence** : '+str(r['isfdb_lists']))
-
-            # Tags cliquables
-            if r.get('isfdb_tags'):
-                st.markdown('**Tags** — clic pour ajouter/retirer du filtre')
-                tag_list = [t.strip() for t in str(r['isfdb_tags']).split(',') if t.strip()]
-                t_cols = st.columns(min(len(tag_list),6))
-                for ti, tag in enumerate(tag_list):
-                    active = tag in st.session_state.tags_include
-                    with t_cols[ti%6]:
-                        lbl = ('✅ ' if active else '')+tag
-                        if st.button(lbl, key=f'ftag_{r["title_id"]}_{ti}'):
-                            if active:
-                                st.session_state.tags_include = [t for t in st.session_state.tags_include if t!=tag]
-                            else:
-                                st.session_state.tags_include = st.session_state.tags_include+[tag]
-                            st.session_state.selected = None; st.rerun()
-
-            if r.get('synopsis'):
-                st.markdown('**Synopsis** (ISFDB)'); st.info(str(r['synopsis']))
-
-            # ── Critiques & Évaluations ───────────────────────────────────────
-            st.markdown('---')
-            st.markdown('**📊 Critiques & Évaluations**')
-            cr1,cr2,cr3,cr4,cr5 = st.columns(5)
-            cr1.metric('Note ISFDB',   r.get('rating')         or '—')
-            cr2.metric('Goodreads',    r.get('gr_rating')      or '—')
-            cr3.metric('FantLab',      r.get('fantlab_rating') or '—')
-            cr4.metric('Open Library', r.get('ol_rating')      or '—')
-            cr5.metric('Vues/an',      int(r['annualviews']) if r.get('annualviews') else '—')
-
-            # Snippets Goodreads
-            if r.get('gr_reviews_text'):
-                import json as _json
-                try:
-                    snippets = _json.loads(r['gr_reviews_text'])
-                    if snippets and len(snippets) > 0:
-                        with st.expander(f'💬 Extraits Goodreads ({len(snippets)} avis)'):
-                            for s in snippets[:5]:
-                                if str(s).strip():
-                                    st.markdown('> '+str(s)[:300])
-                                    st.markdown('---')
-                except Exception:
-                    if str(r['gr_reviews_text']).strip():
-                        st.caption(str(r['gr_reviews_text'])[:200])
-
-            # Critiques noosfere.org
-            noo_critiques = get_conn().execute("""
-                SELECT nt.chroniqueur, nt.texte
-                FROM noosfere_textes nt
-                JOIN noosfere_critiques nc ON nc.numlivre = nt.numlivre
-                WHERE nc.title_id = ? AND nt.texte IS NOT NULL AND nt.is_serie = 0
-                ORDER BY nt.id
-            """, (r['title_id'],)).fetchall()
-            if noo_critiques:
-                with st.expander(f'📰 Critiques noosfere.org ({len(noo_critiques)})'):
-                    for crit in noo_critiques:
-                        if crit[0]:
-                            st.markdown(f'**{crit[0]}**')
-                        st.markdown(str(crit[1])[:1500]+(' …' if len(str(crit[1]))>1500 else ''))
-                        st.markdown('---')
-
-            # Description Open Library
-            if r.get('ol_description'):
-                with st.expander('📖 Description Open Library'):
-                    st.info(str(r['ol_description'])[:600])
-
-            # Liens critiques
-            links_crit = []
-            noo_num = get_conn().execute(
-                "SELECT numlivre FROM noosfere_critiques WHERE title_id=? LIMIT 1",
-                (r['title_id'],)).fetchone()
-            if noo_num:
-                links_crit.append('[noosfere.org](https://www.noosfere.org/livres/niourf.asp?numlivre='+str(noo_num[0])+')')
-            if r.get('nb_reviews') and int(r['nb_reviews'])>0:
-                links_crit.append('[Critiques ISFDB](https://www.isfdb.org/cgi-bin/title.cgi?'+str(r['title_id'])+'#reviews)')
-            if r.get('goodreads_id'):
-                links_crit.append('[Goodreads](https://www.goodreads.com/book/show/'+str(r['goodreads_id'])+')')
-            if r.get('fantlab_url'):
-                links_crit.append('[FantLab]('+str(r['fantlab_url'])+')')
-            else:
-                links_crit.append('[FantLab 🔍](https://fantlab.ru/search?q='+title_slug+')')
-            links_crit.append('[LibraryThing](https://www.librarything.com/search.php?term='+title_slug+'&searchthing=work)')
-            if links_crit: st.markdown('  ·  '.join(links_crit))
-
-            # ── Éditions ─────────────────────────────────────────────────────
-            st.markdown('---'); st.markdown('**📚 Éditions**')
-            ed1, ed2 = st.columns(2)
-            ed1.metric('Nb éditions toutes langues', r.get('nb_editions')    or '—')
-            ed2.metric('1ère publication',           r.get('first_pub_year') or '—')
-
-            # ── Chargement enrichi ────────────────────────────────────────────
-            st.markdown('---')
-            load_key = 'loaded_'+str(r['title_id'])
-            if load_key not in st.session_state: st.session_state[load_key] = None
-
-            if st.button('🔄 Charger bio, éditions, critiques', key='load_'+str(r['title_id'])):
-                import requests as req
-                loaded = {}
-                try:
-                    wp = req.get('https://en.wikipedia.org/api/rest_v1/page/summary/'+author_q.replace(' ','_'), timeout=6)
-                    if wp.status_code==200:
-                        wpd = wp.json()
-                        if wpd.get('extract') and len(wpd['extract'])>100:
-                            loaded['author_bio']    = wpd.get('extract','')[:800]
-                            loaded['author_desc']   = wpd.get('description','')
-                            loaded['author_thumb']  = wpd.get('thumbnail',{}).get('source')
-                            loaded['author_wp_url'] = wpd.get('content_urls',{}).get('desktop',{}).get('page','')
-                except Exception: pass
-
-                if r.get('translator'):
-                    trans_bios = []
-                    for chunk in str(r['translator']).split(';'):
-                        name = chunk.split('(')[0].strip()
-                        if not name: continue
-                        for lang in ['en','fr']:
-                            try:
-                                wpt = req.get(f'https://{lang}.wikipedia.org/api/rest_v1/page/summary/'+name.replace(' ','_'), timeout=5)
-                                if wpt.status_code==200:
-                                    td = wpt.json()
-                                    if td.get('extract') and len(td['extract'])>50:
-                                        trans_bios.append({'name':name,'desc':td.get('description',''),'extract':td['extract'][:300]})
-                                        break
-                            except Exception: pass
-                    loaded['trans_bios'] = trans_bios
-
-                if not r.get('synopsis'):
-                    for slug in [title_q.replace(' ','_'),
-                                 title_q.replace(' ','_')+'_('+author_q.split()[-1]+'_novel)',
-                                 title_q.replace(' ','_')+'_(novel)']:
-                        try:
-                            wps = req.get('https://en.wikipedia.org/api/rest_v1/page/summary/'+slug, timeout=6)
-                            if wps.status_code==200:
-                                wpsd = wps.json()
-                                ex = wpsd.get('extract','')
-                                if ex and len(ex)>100 and wpsd.get('type')=='standard':
-                                    loaded['wp_synopsis']     = ex[:800]
-                                    loaded['wp_synopsis_url'] = wpsd.get('content_urls',{}).get('desktop',{}).get('page','')
-                                    break
-                        except Exception: pass
-
-                try:
-                    ol = req.get('https://openlibrary.org/search.json',
-                                 params={'title':title_q,'author':author_q,'limit':1}, timeout=8)
-                    docs = ol.json().get('docs',[])
-                    if docs:
-                        d = docs[0]
-                        loaded['ol'] = {
-                            'editions':   d.get('edition_count','?'),
-                            'first_year': d.get('first_publish_year','?'),
-                            'rating':     str(round(d['ratings_average'],1)) if d.get('ratings_average') else '—',
-                            'votes':      d.get('ratings_count','—'),
-                            'subjects':   ', '.join(d.get('subject',[])[:12]),
-                            'url':        'https://openlibrary.org'+d.get('key',''),
-                        }
-                except Exception: pass
-
-                st.session_state[load_key] = loaded; st.rerun()
-
-            if st.session_state.get(load_key):
-                loaded = st.session_state[load_key]
-                if loaded.get('author_bio'):
-                    st.markdown('### 👤 '+author_q)
-                    cb1,cb2 = st.columns([3,1])
-                    with cb1:
-                        st.info(loaded['author_bio']); st.caption(loaded.get('author_desc',''))
-                        wp_url = loaded.get('author_wp_url','')
-                        if wp_url:
-                            st.markdown('[Wikipedia EN]('+wp_url+')  ·  [Wikipedia FR]('+wp_url.replace('en.wikipedia.org','fr.wikipedia.org')+')')
-                    with cb2:
-                        if loaded.get('author_thumb'): st.image(loaded['author_thumb'], width=120)
-
-                if loaded.get('trans_bios'):
-                    st.markdown('### 🖊️ Traducteur(s)')
-                    for tb in loaded['trans_bios']:
-                        st.markdown('**'+tb['name']+'** — '+tb['desc']); st.caption(tb['extract'])
-
-                if loaded.get('wp_synopsis'):
-                    st.markdown('### 📖 Synopsis (Wikipedia)'); st.info(loaded['wp_synopsis'])
-                    if loaded.get('wp_synopsis_url'):
-                        st.markdown('[→ Article Wikipedia]('+loaded['wp_synopsis_url']+')')
-
-                if loaded.get('ol'):
-                    ol = loaded['ol']; st.markdown('### 📚 Open Library')
-                    o1,o2,o3,o4 = st.columns(4)
-                    o1.metric('Éditions',ol['editions']); o2.metric('1ère éd.',ol['first_year'])
-                    o3.metric('Note OL',ol['rating']);    o4.metric('Votes OL',ol['votes'])
-                    if ol['subjects']: st.caption('Sujets : '+ol['subjects'])
-                    st.markdown('[→ Open Library]('+ol['url']+')')
-
-            # ── Liens ─────────────────────────────────────────────────────────
-            st.markdown('---'); st.markdown('**🔗 Liens**')
-            lc1,lc2,lc3 = st.columns(3)
-            with lc1:
-                st.markdown('**Sources**')
-                st.markdown('🔹 [ISFDB titre](https://www.isfdb.org/cgi-bin/title.cgi?'+str(r['title_id'])+')')
-                st.markdown('🔹 [ISFDB auteur](https://www.isfdb.org/cgi-bin/ea.cgi?'+author_slug+')')
-                if r.get('wikipedia_url'):
-                    st.markdown('🔹 [Wikipedia EN]('+str(r['wikipedia_url'])+')')
-                    st.markdown('🔹 [Wikipedia FR]('+str(r['wikipedia_url']).replace('en.wikipedia.org','fr.wikipedia.org')+')')
-            with lc2:
-                st.markdown('**Avis lecteurs**')
-                if r.get('goodreads_id'):
-                    gid = str(r['goodreads_id'])
-                    st.markdown('🔹 [Goodreads](https://www.goodreads.com/book/show/'+gid+')')
-                    st.markdown('🔹 [Goodreads critiques](https://www.goodreads.com/book/reviews/'+gid+')')
-                st.markdown('🔹 [Open Library](https://openlibrary.org/search?title='+title_slug+'&author='+author_slug+')')
-                st.markdown('🔹 [FantLab 🇷🇺](https://fantlab.ru/search?q='+title_slug+')')
-                st.markdown('🔹 [LibraryThing](https://www.librarything.com/search.php?term='+title_slug+'&searchthing=work)')
-            with lc3:
-                st.markdown('**Texte en ligne**')
-                st.markdown('🔹 [Project Gutenberg](https://www.gutenberg.org/ebooks/search/?query='+title_slug+'+'+author_slug+')')
-                st.markdown('🔹 [Internet Archive](https://archive.org/search?query='+title_slug+'+'+author_slug+')')
-                st.markdown('🔹 [Standard Ebooks](https://standardebooks.org/ebooks?query='+title_slug+')')
-                if r.get('goodreads_id'):
-                    st.markdown('🔹 [WorldCat](https://www.worldcat.org/search?q='+title_slug+'+'+author_slug+')')
-
-            # ── Note éditoriale ───────────────────────────────────────────────
-            st.markdown('---')
-            ex = query('SELECT note FROM editorial WHERE title_id=?', (int(r['title_id']),))
-            cur_note = ex.iloc[0]['note'] if len(ex)>0 and ex.iloc[0]['note'] else ''
-            note = st.text_area('Note éditoriale', value=cur_note, key='n_'+str(r['title_id']))
-            if st.button('Sauvegarder'):
-                run("""INSERT INTO editorial (title_id,note,updated_at) VALUES(?,?,datetime('now'))
-                       ON CONFLICT(title_id) DO UPDATE SET note=excluded.note,updated_at=excluded.updated_at""",
-                    (int(r['title_id']),note))
-                st.success('✅ Sauvegardé')
-            if st.button('🚀 Envoyer à Turjman'):
-                st.info('POST /jobs — title_id='+str(r['title_id'])+' · '+title_q+' · '+author_q)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# PAGE AUTEURS
-# ═══════════════════════════════════════════════════════════════════════════════
+        show_fiche(st.session_state.selected)
 elif page == '👤 Auteurs':
     with st.sidebar:
         st.subheader('Filtres auteurs')
@@ -799,7 +807,7 @@ elif page == '📅 Prévisions DP':
         SELECT title_id, title, author, year, death_year, (death_year+71) as dp_eu_year,
                has_french_vf, french_title, dp_us, dp_us_reason,
                award_count, award_score, awards,
-               annualviews, isfdb_tags, synopsis, nb_langues_vf, langues_vf, ol_description,
+               annualviews, isfdb_tags, synopsis, nb_langues_vf, langues_vf,
                "type" as work_type
         FROM works WHERE """+' AND '.join(where_p)+"""
         ORDER BY death_year ASC, annualviews DESC NULLS LAST""", params_p)
@@ -839,21 +847,9 @@ elif page == '📅 Prévisions DP':
                     if badges: st.markdown(badges, unsafe_allow_html=True)
                     if row['synopsis']:
                         st.caption('📖 '+str(row['synopsis'])[:200]+'…')
-                    with st.expander('📄 Fiche détail'):
-                        if row.get('awards'): st.markdown('🏆 **Awards** : '+str(row['awards'])[:300])
-                        if row.get('ol_description'): st.info(str(row['ol_description'])[:600])
-                        noo = get_conn().execute("SELECT nt.chroniqueur, nt.texte FROM noosfere_textes nt JOIN noosfere_critiques nc ON nc.numlivre=nt.numlivre WHERE nc.title_id=? AND nt.is_serie=0", (int(row['title_id']),)).fetchall() if row.get('title_id') else []
-                        if noo:
-                            st.markdown(f'**📰 {len(noo)} critique(s) noosfere**')
-                            for c in noo:
-                                if c[0]: st.markdown(f'**{c[0]}**')
-                                st.markdown(str(c[1])[:800])
-                                st.markdown('---')
-                        if "title_id" in row.index: st.markdown(f'[ISFDB](https://www.isfdb.org/cgi-bin/title.cgi?{row["title_id"]})')
-                    if st.button('📄 Voir fiche', key='prev_'+str(row['title_id'])):
-                        st.session_state.selected = query("SELECT w.*, e.status, e.priority, e.score, e.note FROM works w LEFT JOIN editorial e ON w.title_id=e.title_id WHERE w.title_id=?", (int(row['title_id']),)).iloc[0].to_dict()
-                        st.session_state.page = '🔍 Catalogue'
-                        st.rerun()
+                    if st.button('📄 Détail', key='prev_'+str(row['title_id'])):
+                        r_full = query("SELECT w.*, e.status, e.priority, e.score, e.note FROM works w LEFT JOIN editorial e ON w.title_id=e.title_id WHERE w.title_id=?", (int(row['title_id']),))
+                        if not r_full.empty: show_fiche(r_full.iloc[0].to_dict())
                     elif row['has_french_vf']==0 and row['annualviews']:
                         st.caption('👁 '+str(int(row['annualviews']))+'/an')
                 st.divider()
