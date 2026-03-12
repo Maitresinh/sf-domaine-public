@@ -77,6 +77,7 @@ LEFT JOIN titles vt             ON vt.title_parent = t.title_id
 LEFT JOIN languages l           ON l.lang_id       = vt.title_language
 WHERE t.title_ttype IN {TYPES}
   AND t.title_language NOT IN ({EN}, {FR})
+  AND a.author_language = t.title_language
   AND t.title_parent = 0
   AND YEAR(a.author_deathdate) > 0
   AND YEAR(a.author_deathdate) < {DP_EU_CUTOFF}
