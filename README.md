@@ -1,7 +1,7 @@
 
 # SF Domaine Public — Pipeline éditorial
 
-Pipeline complet pour recenser, évaluer et traduire les œuvres SF anglophones du domaine public sans traduction française.
+Pipeline complet pour recenser, évaluer et traduire les œuvres SF anglophones (ou pas) du domaine public sans traduction française.
 
 ## Infrastructure
 
