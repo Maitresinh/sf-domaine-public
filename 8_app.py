@@ -87,7 +87,7 @@ for k, v in {
     'tags_include':[], 'tags_exclude':[], 'tags_mode':'ET',
     'series_filter':'',
     'award_levels':[], 'award_names':[],
-    'selected':None, 'selected_author':None,
+    'selected':None, 'selected_author':None, 'page':'🔍 Catalogue',
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -98,7 +98,8 @@ with st.sidebar:
     page = st.radio('Navigation', [
         '🔍 Catalogue','👤 Auteurs','📅 Prévisions DP',
         '📋 Sélection éditoriale','📊 Stats'
-    ])
+    ], index=['🔍 Catalogue','👤 Auteurs','📅 Prévisions DP','📋 Sélection éditoriale','📊 Stats'].index(st.session_state.page))
+    st.session_state.page = page
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PAGE CATALOGUE
@@ -795,10 +796,10 @@ elif page == '📅 Prévisions DP':
     if prev_awards: where_p.append('(award_count>0 OR award_score>0)')
 
     df_prev = query("""
-        SELECT title, author, year, death_year, (death_year+71) as dp_eu_year,
+        SELECT title_id, title, author, year, death_year, (death_year+71) as dp_eu_year,
                has_french_vf, french_title, dp_us, dp_us_reason,
                award_count, award_score, awards,
-               annualviews, isfdb_tags, synopsis, nb_langues_vf, langues_vf,
+               annualviews, isfdb_tags, synopsis, nb_langues_vf, langues_vf, ol_description,
                "type" as work_type
         FROM works WHERE """+' AND '.join(where_p)+"""
         ORDER BY death_year ASC, annualviews DESC NULLS LAST""", params_p)
@@ -838,6 +839,21 @@ elif page == '📅 Prévisions DP':
                     if badges: st.markdown(badges, unsafe_allow_html=True)
                     if row['synopsis']:
                         st.caption('📖 '+str(row['synopsis'])[:200]+'…')
+                    with st.expander('📄 Fiche détail'):
+                        if row.get('awards'): st.markdown('🏆 **Awards** : '+str(row['awards'])[:300])
+                        if row.get('ol_description'): st.info(str(row['ol_description'])[:600])
+                        noo = get_conn().execute("SELECT nt.chroniqueur, nt.texte FROM noosfere_textes nt JOIN noosfere_critiques nc ON nc.numlivre=nt.numlivre WHERE nc.title_id=? AND nt.is_serie=0", (int(row['title_id']),)).fetchall() if row.get('title_id') else []
+                        if noo:
+                            st.markdown(f'**📰 {len(noo)} critique(s) noosfere**')
+                            for c in noo:
+                                if c[0]: st.markdown(f'**{c[0]}**')
+                                st.markdown(str(c[1])[:800])
+                                st.markdown('---')
+                        if "title_id" in row.index: st.markdown(f'[ISFDB](https://www.isfdb.org/cgi-bin/title.cgi?{row["title_id"]})')
+                    if st.button('📄 Voir fiche', key='prev_'+str(row['title_id'])):
+                        st.session_state.selected = query("SELECT w.*, e.status, e.priority, e.score, e.note FROM works w LEFT JOIN editorial e ON w.title_id=e.title_id WHERE w.title_id=?", (int(row['title_id']),)).iloc[0].to_dict()
+                        st.session_state.page = '🔍 Catalogue'
+                        st.rerun()
                     elif row['has_french_vf']==0 and row['annualviews']:
                         st.caption('👁 '+str(int(row['annualviews']))+'/an')
                 st.divider()
