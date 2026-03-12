@@ -367,3 +367,64 @@ La requête "Dernière VF" (section 2) n'a AUCUN filtre langue :
 - GR colonnes déjà présentes : gr_rating, gr_votes, gr_reviews_text, gr_summary
 - TODO : 17_enrich_noosfere.py (œuvres avec VF + bios traducteurs)
 - TODO : 18_enrich_sfe3.py (articles critiques SF Encyclopedia)
+
+---
+
+## Session 2026-03-12 (après-midi) — Langues non-anglophones + Index critiques noosfere
+
+### Bilan enrichissements nuit précédente
+- `15_enrich_ia.py` : Internet Archive — colonnes `ia_identifier`, `ia_downloads`, `ia_has_text`, `ia_searched`
+  - Pas de log (`enrich_ia.log` absent) mais colonnes bien présentes dans works
+- `16_enrich_goodreads.py` : 40 trouvés, 1856 avec rating (`gr_rating`, `gr_votes`)
+
+### 13_reviews.py — script ancien retrouvé
+- Script tout-en-un : Goodreads scraping + Guardian API + synthèse Ollama
+- **Supplanté** par 15_ (IA) et 16_ (GR) — à conserver pour référence Guardian + Ollama
+- Colonnes Guardian : `guardian_url`, `guardian_title`, `guardian_date`, `guardian_snippet`
+- Synthèse Ollama : `gr_summary` (3 phrases EN à partir des reviews GR)
+
+### Élargissement périmètre — œuvres non-anglophones (13_add_languages.py)
+- Constat : `1_pipeline.py` ligne 133 filtre dur `title_language = EN (17)`
+- Čapek *Válka s mloky* (tchèque) → absent de works → décision d'élargir
+- Script `13_add_languages.py` : INSERT OR IGNORE des œuvres non-EN/FR DP EU sans VF FR
+- Nouvelle colonne `lang_orig` dans works
+- Résultats : **+1439 œuvres** (total 126 679)
+  - DE=530, IT=229, PT=122, RU=87, RO=79, JA=61, ES=54, NL=46, PL=40, HU=32...
+- `dp_us=0` par défaut (CCE non applicable hors EN)
+- Script idempotent (INSERT OR IGNORE)
+
+### 17_noosfere_index.py — index critiques noosfere.org
+- Scraping `critiques.asp?lettre=X` pour toutes les lettres 0-9, A-Z
+- Structure : liens `niourf.asp?numlivre=X` → titre + auteur appairés
+- Table `noosfere_critiques(numlivre, titre_noosfere, auteur_noosfere, lettre, critique_fetched)`
+- Résultats : **8388 entrées** en ~10 min (délai 1.5s/lettre)
+- Script idempotent (INSERT OR IGNORE)
+
+### 18_noosfere_critiques.py — fetch textes critiques
+- Fetch `niourf.asp?numlivre=X` pour chaque entrée de noosfere_critiques
+- Encoding : `iso-8859-1` (latin-1, site années 2000)
+- Structure page : `div id="critique"` (N par livre), `div align="justify"` pour le texte
+- Chroniqueur : `a href="critsign.asp?numauteur=X"`
+- Flag `is_serie` : lien `serie.asp` dans le bloc → critique de série, pas du livre
+- Table `noosfere_textes(id, numlivre, chroniqueur, texte, is_serie)`
+- Colonnes ajoutées dans `noosfere_critiques` : `title_id`, `nb_critiques`
+- **Problème matching** : noosfere donne titres FR, works indexé EN
+  - `french_title` rempli seulement à 8% (10 878/126 679)
+  - Fix : `build_works_index` indexe maintenant `title` ET `french_title`
+  - Taux de match actuel : ~2.6% → TODO `19_noosfere_rematch.py`
+- **Solution identifiée** : page noosfere contient `Titre original : X, année`
+  - Regex validé : `r'Titre original\s*:\s*(.+?),\s*\d{4}'`
+  - À implémenter dans 19_ pour les `title_id IS NULL`
+- Lancé en arrière-plan ~19h, ~2h50 pour 8388 livres
+
+### DB lock — incident
+- `docker exec -d` du 18_ + streamlit + datasette → lock SQLite
+- Résolution : `docker restart sf-dp-tools` (libère tous les handles)
+- `ps`/`pkill`/`kill` absents du container (image minimaliste)
+- Workaround futur : `docker restart sf-dp-tools` avant toute opération de reset
+
+### TODO prochaine session
+1. `19_noosfere_rematch.py` : rematch `title_id IS NULL` via "Titre original" dans fiche
+2. Afficher critiques noosfere dans `8_app.py` (onglet dédié ou inline fiche)
+3. Lancer `13_reviews.py` Guardian sur les nouvelles œuvres non-anglophones
+4. Mettre à jour README scripts pipeline (13_, 15_, 16_, 17_, 18_)
