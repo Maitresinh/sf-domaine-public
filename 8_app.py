@@ -433,7 +433,7 @@ def show_fiche(r):
                     }
             except Exception: pass
 
-            st.session_state[load_key] = loaded; st.rerun()
+            st.session_state[load_key] = loaded
 
         if st.session_state.get(load_key):
             loaded = st.session_state[load_key]
