@@ -353,3 +353,9 @@ La requête "Dernière VF" (section 2) n'a AUCUN filtre langue :
 4. Corriger 8_app.py : masquer section VF si has_french_vf=0, ajouter traducteur
 5. Corriger filtre awards (award_count > 0 AND awards != '')
 6. Ajouter colonnes manquantes dans SELECT fiche détail (dp_fr, dp_us_source, etc.)
+
+### 7_postprocess.py v3 final — résultats
+- has_french_vf=1 : 10 868 (corrigé depuis 44 042)
+- last_vf_year : 3 760
+- avec traducteur : 8 846 (source : notes {{Tr|NOM}})
+- Structure ISFDB confirmée : traducteur = notes.note_note {{Tr|}}, PAS canonical_author
