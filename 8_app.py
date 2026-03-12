@@ -233,6 +233,7 @@ if page == '🔍 Catalogue':
                w.isfdb_tags, w.isfdb_lists, w.synopsis,
                w.nb_langues_vf, w.langues_vf, w.series,
                w.wikipedia_url, w.goodreads_id, w.translator,
+               w.birth_year, w.death_year, w.birthplace,
                w.nb_editions, w.first_pub_year,
                w.last_vf_year, w.last_vf_publisher, w.last_vf_title,
                COALESCE(e.status,'À évaluer') as status
@@ -288,7 +289,7 @@ if page == '🔍 Catalogue':
 
             with col_status:
                 cur = row['status'] if row['status'] in ED_STATUTS else 'À évaluer'
-                new = st.selectbox('', ED_STATUTS, index=ED_STATUTS.index(cur), key='s_'+str(row['title_id']))
+                new = st.selectbox('Statut', ED_STATUTS, index=ED_STATUTS.index(cur), key='s_'+str(row['title_id']))
                 if new != cur:
                     run("""INSERT INTO editorial (title_id,status,updated_at) VALUES(?,?,datetime('now'))
                            ON CONFLICT(title_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at""",
@@ -310,6 +311,10 @@ if page == '🔍 Catalogue':
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown('**Auteur** : '+author_q)
+                if r.get('birth_year') or r.get('death_year'):
+                    bio = str(r.get('birth_year') or '?')+' – '+str(r.get('death_year') or 'vivant')
+                    if r.get('birthplace'): bio += ' · '+str(r['birthplace'])
+                    st.caption('🗓 '+bio)
                 st.markdown('**Année** : '+str(r['year']))
                 st.markdown('**Type** : '+str(r.get('work_type',r.get('type','?'))))
                 if r.get('series'):
@@ -328,27 +333,119 @@ if page == '🔍 Catalogue':
 
             # ── État du droit ────────────────────────────────────────────────
             st.markdown('---')
-            st.markdown('**⚖️ État du droit**')
-            dp_eu_txt = '🇪🇺 DP EU' if r.get('dp_eu')==1 else '🔒 Protégé EU'
-            dp_us_txt = '🇺🇸 DP US' if r.get('dp_us')==1 else ('🔒 Protégé US' if r.get('dp_us')==0 else '❓ Non vérifié')
-            dp_fr_txt = '🇫🇷 DP France (prorogation guerre)' if r.get('dp_fr')==1 else ''
-            st.markdown(f"{dp_eu_txt}  ·  {dp_us_txt}{'  ·  '+dp_fr_txt if dp_fr_txt else ''}")
+            st.markdown('### ⚖️ Analyse du droit')
 
-            if r.get('dp_us_source'):
-                src_labels = {
-                    'cce_magazine_shortfiction': 'CCE — short fiction magazine (non renouvelé)',
-                    'cce_upenn_magazine':        'CCE/UPenn — renouvellement trouvé',
-                    'cce_stanford_novel':        'CCE Stanford — roman (non renouvelé)',
-                    'hathitrust':                'HathiTrust — droits vérifiés',
-                    'hathitrust_magazine':       'HathiTrust — magazine',
-                }
-                src = src_labels.get(str(r['dp_us_source']), str(r['dp_us_source']))
-                st.caption(f"Source : {src}")
-            if r.get('dp_us_reason'):
-                with st.expander('🔍 Détail analyse DP US'):
-                    st.caption(str(r['dp_us_reason']))
-            if r.get('mag_title'):
-                st.caption(f"📰 Publié dans : *{r['mag_title']}*{' ('+str(r['mag_year'])+')' if r.get('mag_year') else ''}")
+            # Europe
+            st.markdown('**🇪🇺 Droit européen (directive 2006/116/CE)**')
+            if r.get('dp_eu') == 1:
+                death = r.get('death_year') or '?'
+                dp_eu_since = int(death) + 71 if isinstance(death, (int, float)) and death != '?' else '?'
+                st.success(
+                    f"✅ Domaine public en Europe depuis le 1er janvier {dp_eu_since}. "
+                    f"L'auteur est décédé en {death} ; ses œuvres tombent dans le domaine public "
+                    "70 ans après sa mort (art. 1 de la directive européenne 2006/116/CE).")
+            else:
+                st.error("🔒 Protégé en Europe — l'auteur est décédé après 1955 ou la date de décès est inconnue.")
+
+            # France
+            st.markdown('**🇫🇷 Droit français (prorogation de guerre)**')
+            if r.get('dp_fr') == 1:
+                st.success(
+                    "✅ Domaine public en France. L'auteur est décédé avant 1948 : "
+                    "la prorogation de guerre française (+8 ans et 120 jours, art. L123-8 CPI) "
+                    "est épuisée, l'œuvre est libre de droits sur le territoire français.")
+            elif r.get('dp_eu') == 1:
+                death = r.get('death_year') or 0
+                if death and int(death) >= 1948:
+                    st.warning(
+                        f"⚠️ Domaine public EU mais prorogation de guerre à vérifier. "
+                        f"L'auteur est décédé en {death}. Si ressortissant d'un pays "
+                        "en guerre avec la France (Allemagne, Italie, Japon…), "
+                        "une prorogation de +8 ans et 120 jours peut s'appliquer (art. L123-8 CPI).")
+                else:
+                    st.info("ℹ️ Date de décès manquante — statut France non calculable.")
+            else:
+                st.error("🔒 Protégé en France (œuvre protégée en Europe).")
+
+            # États-Unis
+            st.markdown('**🇺🇸 Droit américain (Copyright Act)**')
+            src    = r.get('dp_us_source') or ''
+            reason = r.get('dp_us_reason') or ''
+            year   = int(r.get('year') or 0)
+
+            if r.get('dp_us') == 1:
+                if not src and year < 1928:
+                    st.success(
+                        f"✅ Domaine public aux États-Unis. Publication en {year}, "
+                        "soit avant le 1er janvier 1928 : toutes les œuvres publiées "
+                        "avant cette date sont automatiquement dans le domaine public américain, "
+                        "sans condition de renouvellement (Copyright Act de 1976, §304).")
+                elif src == 'cce_stanford_novel':
+                    st.success(
+                        f"✅ Domaine public aux États-Unis. Roman publié en {year} "
+                        "(période 1923–1963) : aucun renouvellement de copyright n'a été trouvé "
+                        "dans le Catalogue of Copyright Entries (CCE) numérisé par Stanford. "
+                        "Sous le Copyright Act de 1909, le copyright initial de 28 ans devait "
+                        "être renouvelé auprès du Copyright Office ; faute de renouvellement, "
+                        "l'œuvre est tombée dans le domaine public à l'expiration du premier terme.")
+                elif src == 'cce_magazine_shortfiction':
+                    mag = r.get('mag_title') or 'magazine inconnu'
+                    mag_year = r.get('mag_year') or year
+                    st.success(
+                        f"✅ Domaine public aux États-Unis. Nouvelle publiée en {mag_year} "
+                        f"dans *{mag}*. Aucun renouvellement individuel n'a été trouvé dans le CCE "
+                        "(Stanford) ni dans les contributions indexées par l'Online Books Page (UPenn). "
+                        "La compilation du magazine n'a pas non plus été renouvelée pour la période "
+                        "concernée. Sous le Copyright Act de 1909, faute de renouvellement dans les "
+                        "28 ans, l'œuvre est tombée dans le domaine public.")
+                    if 'Convention de Berne' in reason:
+                        st.info(
+                            "📌 Convention de Berne : le non-renouvellement du copyright américain "
+                            "(durée effective : 28 ans) est reconnu par les pays signataires. "
+                            "L'œuvre est également considérée comme domaine public en Europe "
+                            "par application de la règle du traitement national.")
+                elif src == 'hathitrust':
+                    st.success(
+                        "✅ Domaine public aux États-Unis, confirmé par HathiTrust Digital Library. "
+                        "HathiTrust a vérifié le statut de droits de cette œuvre (code : pd) "
+                        "et la met à disposition librement sur sa plateforme.")
+                else:
+                    st.success(f"✅ Domaine public aux États-Unis (publication en {year}).")
+
+            elif r.get('dp_us') == 0:
+                if src == 'cce_upenn_magazine':
+                    st.error(
+                        "🔒 Protégé aux États-Unis. Un renouvellement de copyright a été trouvé "
+                        "dans le CCE (Stanford) ou dans les contributions indexées par UPenn "
+                        "pour ce magazine. Le copyright a été renouvelé dans les délais légaux.")
+                elif src == 'hathitrust':
+                    st.error("🔒 Protégé aux États-Unis, confirmé par HathiTrust Digital Library.")
+                elif not src and year > 1963:
+                    st.error(
+                        f"🔒 Protégé aux États-Unis. Publication en {year}, après 1963 : "
+                        "sous le Copyright Act de 1976 et le Sonny Bono Act de 1998, "
+                        "les œuvres publiées après 1963 sont protégées pendant 95 ans "
+                        "à compter de la publication.")
+                else:
+                    st.error("🔒 Protégé aux États-Unis.")
+            else:
+                if 1928 <= year <= 1963:
+                    st.warning(
+                        f"❓ Statut américain non vérifié. Publication en {year} "
+                        "(période 1923–1963) : une vérification dans le Catalogue of Copyright "
+                        "Entries est nécessaire pour confirmer si le copyright a été renouvelé.")
+                else:
+                    st.warning("❓ Statut américain non déterminé.")
+
+            # Détail technique
+            if reason or src:
+                with st.expander('🔍 Détail technique'):
+                    st.caption(f"**Source de vérification :** {src or 'non renseignée'}")
+                    if reason: st.caption(f"**Motif enregistré :** {reason}")
+                    if r.get('mag_title'):
+                        st.caption(f"**Magazine :** {r['mag_title']}"
+                                   + (f" ({r['mag_year']})" if r.get('mag_year') else ''))
+
 
             # ── Awards ───────────────────────────────────────────────────────
             if r.get('awards') and r.get('award_count') and int(r.get('award_count') or 0) > 0:
@@ -793,7 +890,7 @@ elif page == '📋 Sélection éditoriale':
 
                 with col_actions:
                     cur = row['status'] if row['status'] in ED_STATUTS else 'À évaluer'
-                    new = st.selectbox('', ED_STATUTS, index=ED_STATUTS.index(cur), key=f'ed_s_{tid}')
+                    new = st.selectbox('Statut', ED_STATUTS, index=ED_STATUTS.index(cur), key=f'ed_s_{tid}')
                     if new!=cur:
                         run("UPDATE editorial SET status=?,updated_at=datetime('now') WHERE title_id=?", (new,tid))
                         st.rerun()

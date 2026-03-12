@@ -315,3 +315,41 @@ Même logique que script 12 étape 1 (romans CCE Class A),
   - Non trouvé CCE Class A → dp_us=1
   - Bonus : croiser avec liste contributions renouvelées UPenn par magazine
   - Résultats v1 (HathiTrust) à effacer et recalculer
+
+## Session 2026-03-12
+
+### MariaDB — résolution crash loop
+- Cause : tc.log corrompu après chmod incorrect
+- Fix : rm tc.log + redémarrage avec --tc-heuristic-recover=rollback puis restart normal
+- MariaDB up : 2 479 781 titres accessibles
+
+### Diagnostic ISFDB — structure langues et VF
+- `languages` : lang_id=22 → French (code 'fre'), lang_id=17 → English
+- `title_language` dans `titles` est numérique (FK vers languages.lang_id)
+- VF françaises : titres avec `title_language=22 AND title_parent>0` → **37 578 titres**
+- `pubs` n'a PAS de colonne pub_language — la langue vient des titles contenus
+- Éditeur : `pubs.publisher_id` → JOIN `publishers.publisher_name`
+- Traducteurs : `canonical_author.ca_status=3` sur le titre FR enfant
+  (ca_status=1=auteur, ca_status=2=?, ca_status=3=traducteur confirmé)
+
+### Bug 4 — Root cause confirmée dans 7_postprocess.py
+La requête "Dernière VF" (section 2) n'a AUCUN filtre langue :
+- Prend toutes pubs de toutes langues → MAX(pub_year) = édition EN/DE/ES récente
+- has_french_vf : source à identifier dans 1_pipeline.py (probablement aussi cassé)
+- Kornbluth Takeoff (title_id=3978) : zéro enfant title_language=22 → faux positif confirmé
+- Twilight Zone : title_id=1454664 est lui-même en lang=22 (c'est le titre FR)
+  Le titre EN parent est à identifier
+
+### Colonnes à ajouter dans works pour fix VF
+- first_vf_year, first_vf_title (nouvelles)
+- last_vf_year, last_vf_title, last_vf_publisher (à recalculer correctement)
+- last_vf_translator (nouvelle — ca_status=3 sur titre FR enfant)
+- nb_vf_fr (nouvelle — nb d'éditions FR distinctes)
+
+### TODO session suivante
+1. Réécrire section VF de 7_postprocess.py avec filtre title_language=22
+2. Identifier source de has_french_vf dans 1_pipeline.py et corriger
+3. Ajouter last_vf_translator dans works + GUI
+4. Corriger 8_app.py : masquer section VF si has_french_vf=0, ajouter traducteur
+5. Corriger filtre awards (award_count > 0 AND awards != '')
+6. Ajouter colonnes manquantes dans SELECT fiche détail (dp_fr, dp_us_source, etc.)
