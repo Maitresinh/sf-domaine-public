@@ -559,11 +559,11 @@ if page == '🔍 Catalogue':
         st.session_state.award_names = [aw_labels[aw_options.index(x)] for x in aw_names if x in aw_options]
 
         types = st.multiselect('Type',
-            ['novel','novella','novelette','short story','shortfiction','collection','anthology'],
+            ['novel','novella','novelette','short story','shortfiction','collection','anthology','omnibus'],
             default=['novel'])
         c1c, c2c = st.columns(2)
         with c1c: year_min = st.number_input('Année min', 1850, 2000, 1900)
-        with c2c: year_max = st.number_input('Année max', 1850, 2000, 1963)
+        with c2c: year_max = st.number_input('Année max', 1850, 2030, 1963)
 
         dp_filter = st.selectbox('Domaine public', [
             'DP EU (mort avant 1956)','DP US confirmé (CCE)','DP EU + US confirmé',
@@ -574,6 +574,18 @@ if page == '🔍 Catalogue':
         lists_only    = st.checkbox('Dans une liste de référence')
         lang_filter   = st.selectbox('Traduit ailleurs', [
             'Toutes','Traduit ailleurs (≥1 langue)','Traduit ailleurs (≥3 langues)','Aucune traduction'])
+        _con = get_conn()
+        _lang_rows = _con.execute("""
+            SELECT lang_orig, COUNT(*) n FROM works
+            WHERE lang_orig IS NOT NULL
+            GROUP BY lang_orig ORDER BY n DESC
+            """).fetchall()
+        _lang_opts = ['English (défaut) ('+str(_con.execute('SELECT COUNT(*) FROM works WHERE lang_orig IS NULL').fetchone()[0])+')']
+        _lang_opts += [r[0]+' ('+str(r[1])+')' for r in _lang_rows]
+        _lang_sel = st.multiselect('Langue originale', _lang_opts)
+        lang_orig_filter = []
+        for x in _lang_sel:
+            lang_orig_filter.append(x.rsplit(' (',1)[0])
         sort_by = st.selectbox('Trier par', [
             'annualviews DESC','award_count DESC','year ASC','year DESC',
             'fantlab_rating DESC','nb_reviews DESC'])
@@ -582,8 +594,8 @@ if page == '🔍 Catalogue':
     # ── SQL ───────────────────────────────────────────────────────────────────
     where, params = ['1=1'], []
     if types:
-        where.append('w."type" IN (' + ','.join(['?']*len(types)) + ')')
-        params.extend(types)
+        where.append('UPPER(w."type") IN (' + ','.join(['?']*len(types)) + ')')
+        params.extend([t.upper() for t in types])
     where.append('w.year >= ? AND w.year <= ?')
     params.extend([year_min, year_max])
 
@@ -598,6 +610,15 @@ if page == '🔍 Catalogue':
     if vf_filter == 'Sans VF (à traduire)':    where.append('w.has_french_vf = 0')
     elif vf_filter == 'Avec VF (déjà traduit)': where.append('w.has_french_vf = 1')
     if author_search: where.append('w.author LIKE ?'); params.append('%'+author_search+'%')
+    if lang_orig_filter:
+        clauses = []
+        for lang in lang_orig_filter:
+            if lang == 'English (défaut)':
+                clauses.append('w.lang_orig IS NULL')
+            else:
+                clauses.append('w.lang_orig = ?')
+                params.append(lang)
+        where.append('(' + ' OR '.join(clauses) + ')')
     if title_search:  where.append('w.title  LIKE ?'); params.append('%'+title_search+'%')
     if st.session_state.series_filter:
         where.append('w.series LIKE ?'); params.append('%'+st.session_state.series_filter+'%')
@@ -645,11 +666,13 @@ if page == '🔍 Catalogue':
                w.nb_editions, w.first_pub_year,
                w.last_vf_year, w.last_vf_publisher, w.last_vf_title,
                w.first_vf_year, w.first_vf_title, w.last_vf_translator, w.nb_vf_fr,
+               w.lang_orig,
                COALESCE(e.status,'À évaluer') as status
         FROM works w
         LEFT JOIN editorial e ON w.title_id = e.title_id
         WHERE """ + ' AND '.join(where) + """
         ORDER BY w.""" + sort_by + " LIMIT ?"
+
     params.append(limit)
     df = query(sql, params)
 
