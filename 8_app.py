@@ -1066,3 +1066,61 @@ elif page == '📊 Stats':
         prio_counts = df_ed_stats.groupby('priority').size().rename('n')
         prio_counts.index = [PRIORITY_LABELS.get(i,str(i)) for i in prio_counts.index]
         s3.bar_chart(prio_counts)
+
+    st.markdown('---')
+    st.subheader('🔄 Enrichissement Goodreads')
+
+    MIN_SCORE = 10
+    gr = query("""
+        SELECT
+            SUM(CASE WHEN gr_rating IS NOT NULL THEN 1 ELSE 0 END)                          as avec_rating,
+            SUM(CASE WHEN gr_searched=1 AND gr_rating IS NULL THEN 1 ELSE 0 END)            as cherche_introuvable,
+            SUM(CASE WHEN (gr_searched IS NULL OR gr_searched=0) AND (dp_eu=1 OR dp_us=1)
+                     AND has_french_vf=0 AND award_count>0 THEN 1 ELSE 0 END)               as restants_p1,
+            SUM(CASE WHEN (gr_searched IS NULL OR gr_searched=0) AND (dp_eu=1 OR dp_us=1)
+                     AND has_french_vf=0 AND (award_count IS NULL OR award_count=0)
+                     AND (COALESCE(annualviews,0)/1000.0
+                          + COALESCE(nb_langues_vf,0)*5
+                          + COALESCE(award_score,0)) >= 10 THEN 1 ELSE 0 END)               as restants_p2,
+            SUM(CASE WHEN gr_summary IS NOT NULL THEN 1 ELSE 0 END)                         as avec_summary,
+            SUM(CASE WHEN gr_reviews_text IS NOT NULL THEN 1 ELSE 0 END)                    as avec_reviews
+        FROM works
+    """).iloc[0]
+
+    total_cibles = int(gr['avec_rating']) + int(gr['cherche_introuvable']) + int(gr['restants_p1']) + int(gr['restants_p2'])
+    done         = int(gr['avec_rating']) + int(gr['cherche_introuvable'])
+    pct          = done / total_cibles * 100 if total_cibles > 0 else 0
+
+    g1,g2,g3,g4 = st.columns(4)
+    g1.metric('Avec rating',    int(gr['avec_rating']))
+    g2.metric('Avec summary',   int(gr['avec_summary']))
+    g3.metric('Avec critiques', int(gr['avec_reviews']))
+    g4.metric('Introuvables',   int(gr['cherche_introuvable']))
+
+    st.progress(pct/100, text=f'Progression globale : {pct:.1f}% ({done}/{total_cibles} traités)')
+
+    rp1, rp2 = int(gr['restants_p1']), int(gr['restants_p2'])
+    b1, b2 = st.columns(2)
+    b1.progress(
+        1 - rp1 / max(rp1 + done, 1),
+        text=f'P1 — Primés DP sans VF : {rp1} restants'
+    )
+    b2.progress(
+        1 - rp2 / max(rp2 + done, 1),
+        text=f'P2 — Score ≥ {MIN_SCORE} DP sans VF : {rp2} restants'
+    )
+
+    # Dernière exécution du batch
+    import os
+    log_path = '/app/data/20_gr_batch.log'
+    if os.path.exists(log_path):
+        with open(log_path) as lf:
+            lines = lf.readlines()
+        last_run   = next((l.strip() for l in lines if '===' in l and 'gr_batch' in l.lower()), None)
+        last_stats = [l.strip() for l in lines if 'Trouvés' in l or 'Bloqués' in l or 'Estimation' in l or 'Total DB' in l][-4:]
+        if last_run:
+            st.caption(f'Dernier run : {last_run}')
+        if last_stats:
+            st.code('\n'.join(last_stats), language=None)
+    else:
+        st.caption('Batch pas encore lancé (20_gr_batch.py)')
