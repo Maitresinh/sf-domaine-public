@@ -589,7 +589,7 @@ if page == '🔍 Catalogue':
         sort_by = st.selectbox('Trier par', [
             'annualviews DESC','award_count DESC','year ASC','year DESC',
             'fantlab_rating DESC','nb_reviews DESC'])
-        limit = st.slider('Résultats max', 20, 500, 100)
+        limit = st.slider('Résultats max', 20, 2000, 100)
 
     # ── SQL ───────────────────────────────────────────────────────────────────
     where, params = ['1=1'], []
