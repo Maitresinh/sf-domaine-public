@@ -794,7 +794,7 @@ elif page == '📅 Prévisions DP':
         prev_awards = st.checkbox('Primés / cités uniquement')
 
     y_min, y_max = year_range
-    where_p  = ['death_year BETWEEN ? AND ?','death_year IS NOT NULL','dp_eu=0']
+    where_p  = ['death_year BETWEEN ? AND ?','death_year IS NOT NULL','dp_eu=0','dp_us=0']
     params_p = [y_min-71, y_max-71]
     if prev_types:
         where_p.append('"type" IN ('+','.join(['?']*len(prev_types))+')')
