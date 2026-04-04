@@ -37,7 +37,7 @@ from datetime import datetime
 # ── Config ────────────────────────────────────────────────────────────────────
 DB       = '/app/data/sf_dp.sqlite'
 LOG_FILE = '/app/data/22_synopses_wp.log'
-WAIT     = 1.5     # secondes entre requêtes API Wikipedia
+WAIT     = 4.0     # secondes entre requêtes API Wikipedia
 MIN_LEN  = 80      # caractères minimum pour accepter un synopsis
 COMMIT_N = 500     # checkpoint tous les N traités
 
@@ -104,75 +104,81 @@ def validate(text, title, author):
         return False, 'titre absent'
     return True, 'ok'
 
-def wp_fetch_extract(wp_title):
-    """Récupère l'intro Wikipedia d'un article par son titre exact."""
-    r = requests.get(
-        'https://en.wikipedia.org/w/api.php',
-        params={
-            'action': 'query',
-            'titles': wp_title,
-            'prop': 'extracts',
-            'exintro': True,
-            'explaintext': True,
-            'format': 'json'
-        },
-        headers=HEADERS,
-        timeout=8
-    )
-    r.raise_for_status()
-    pages = r.json().get('query', {}).get('pages', {})
-    for page in pages.values():
-        return page.get('extract', '')
-    return ''
+BATCH_SIZE = 50  # titres par requête batch
+
+def wp_batch_extracts(titles_list):
+    """
+    Récupère les extraits Wikipedia pour une liste de titres (max 50).
+    Retourne dict {titre_normalisé: (extract, url)}.
+    """
+    titles_str = '|'.join(titles_list)
+    try:
+        r = requests.get(
+            'https://en.wikipedia.org/w/api.php',
+            params={
+                'action': 'query',
+                'titles': titles_str,
+                'prop': 'extracts|info',
+                'exintro': True,
+                'explaintext': True,
+                'inprop': 'url',
+                'format': 'json',
+                'redirects': 1,
+            },
+            headers=HEADERS,
+            timeout=15
+        )
+        r.raise_for_status()
+        pages = r.json().get('query', {}).get('pages', {})
+        result = {}
+        for page in pages.values():
+            if 'missing' in page: continue
+            t = page.get('title', '')
+            extract = page.get('extract', '')
+            url = page.get('fullurl', f'https://en.wikipedia.org/wiki/{t.replace(" ","_")}')
+            if extract:
+                result[normalize(t)] = (extract, url)
+        return result
+    except requests.RequestException as e:
+        if '429' in str(e):
+            log.warning(f'  Rate limit 429 — pause 120s')
+            time.sleep(120)
+        else:
+            log.warning(f'  Erreur batch: {e}')
+            time.sleep(10)
+        return {}
 
 def wp_search(title, author, work_type=''):
-    """
-    Cherche un synopsis Wikipedia pour une œuvre.
-    Retourne (synopsis, url) ou (None, None).
-    """
+    """Cherche via opensearch puis valide. Retourne (synopsis, url) ou (None, None)."""
     type_hint = 'novel' if 'NOVEL' in str(work_type).upper() else 'story'
     ln = lastname(author)
-
-    queries = [
-        f'{title} {ln} {type_hint}',
-        f'{title} {ln}',
-        f'{title} science fiction',
-    ]
-
-    for query in queries:
-        try:
-            r = requests.get(
-                'https://en.wikipedia.org/w/api.php',
-                params={
-                    'action': 'opensearch',
-                    'search': query,
-                    'limit': 3,
-                    'namespace': 0,
-                    'format': 'json'
-                },
-                headers=HEADERS,
-                timeout=8
-            )
-            r.raise_for_status()
-            data = r.json()
-            titles_found = data[1] if len(data) > 1 else []
-            urls_found   = data[3] if len(data) > 3 else []
-
-            for wp_title, wp_url in zip(titles_found, urls_found):
-                time.sleep(0.5)
-                text = wp_fetch_extract(wp_title)
-                ok, reason = validate(text, title, author)
-                if ok:
-                    intro = extract_intro(text)
-                    if intro:
-                        return intro[:600], wp_url
-                # Sinon on essaie le résultat suivant
-
-        except requests.RequestException as e:
+    query = f'{title} {ln} {type_hint}'
+    try:
+        r = requests.get(
+            'https://en.wikipedia.org/w/api.php',
+            params={'action':'opensearch','search':query,'limit':3,'namespace':0,'format':'json'},
+            headers=HEADERS, timeout=8
+        )
+        r.raise_for_status()
+        data = r.json()
+        titles_found = data[1] if len(data) > 1 else []
+        urls_found   = data[3] if len(data) > 3 else []
+        for wp_title, wp_url in zip(titles_found, urls_found):
+            time.sleep(0.3)
+            batch = wp_batch_extracts([wp_title])
+            text, url = batch.get(normalize(wp_title), ('', wp_url))
+            ok, reason = validate(text, title, author)
+            if ok:
+                intro = extract_intro(text)
+                if intro:
+                    return intro[:600], url
+    except requests.RequestException as e:
+        if '429' in str(e):
+            log.warning(f'  Rate limit 429 — pause 120s')
+            time.sleep(120)
+        else:
             log.warning(f'  Erreur API: {e}')
             time.sleep(5)
-            continue
-
     return None, None
 
 # ── Cibles ────────────────────────────────────────────────────────────────────

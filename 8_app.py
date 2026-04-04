@@ -55,6 +55,24 @@ init_db()
 PRIORITY_LABELS = {1:'⚡ Urgente', 2:'🔴 Haute', 3:'🟡 Normale', 4:'🔵 Basse', 5:'⬜ Archive'}
 PRIORITY_REV    = {v:k for k,v in PRIORITY_LABELS.items()}
 ED_STATUTS      = ['À évaluer','Sélectionné','En cours','Rejeté']
+OLLAMA_URL        = 'http://ollama:11434/api/generate'
+OLLAMA_MODEL_IA   = 'gemma3:27b'
+OLLAMA_MODEL_TRAD = 'qwen2.5:14b'
+
+def ollama(prompt, model=None, temperature=0.3, max_tokens=400):
+    import requests as _req
+    if model is None: model = OLLAMA_MODEL_IA
+    try:
+        r = _req.post(OLLAMA_URL, json={
+            'model': model,
+            'prompt': prompt,
+            'stream': False,
+            'options': {'temperature': temperature, 'num_predict': max_tokens}
+        }, timeout=300)
+        r.raise_for_status()
+        return r.json().get('response', '').strip()
+    except Exception:
+        return None
 
 @st.cache_data(ttl=3600)
 def load_all_tags():
@@ -97,7 +115,7 @@ with st.sidebar:
     st.markdown('---')
     page = st.radio('Navigation', [
         '🔍 Catalogue','👤 Auteurs','📅 Prévisions DP',
-        '📋 Sélection éditoriale','📊 Stats'
+        '📋 Sélection éditoriale','📊 Stats','🤖 Recherche IA'
     ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -132,22 +150,40 @@ def show_fiche(r):
             if r.get('langues_vf'):
                 st.markdown('**Traduit en** : '+str(r['langues_vf']))
 
-            if r.get('has_french_vf') == 1:
-                vf_parts = []
-                if r.get('first_vf_title'):  vf_parts.append('*'+str(r['first_vf_title'])+'*')
-                elif r.get('last_vf_title'): vf_parts.append('*'+str(r['last_vf_title'])+'*')
-                st.markdown('**🇫🇷 VF** : 🟢 ' + (' — '.join(vf_parts) if vf_parts else 'oui'))
-                vf_cols = st.columns(3)
-                vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
-                vf_cols[1].metric('Dernière VF', r.get('last_vf_year')  or '—')
-                vf_cols[2].metric('Nb éditions FR', r.get('nb_vf_fr')   or '—')
-                if r.get('last_vf_publisher'):
-                    st.caption('🏢 Éditeur (dernière éd.) : '+str(r['last_vf_publisher']))
-                if r.get('last_vf_translator'):
-                    st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
-            else:
-                st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
-
+                # ── Éditions & traductions ─────────────────────────────────
+                import json as _j
+                eds = []
+                if r.get('editions_json'):
+                    try: eds = _j.loads(r['editions_json'])
+                    except: eds = []
+                fr_eds = [e for e in eds if e.get('lang_code') == 'fr']
+                if r.get('has_french_vf') == 1 or fr_eds:
+                    st.markdown('**🇫🇷 Éditions françaises**')
+                    if fr_eds:
+                        for e in fr_eds:
+                            yr = str(e.get('first_year') or '?')+'–'+str(e.get('last_year') or '?')
+                            trad = e.get('translator') or r.get('last_vf_translator') or '?'
+                            pubs = (e.get('publishers') or '?')[:70]
+                            st.markdown(f"• *{e.get('title','?')}* ({yr}) — {pubs} — ✍️ {trad}")
+                    else:
+                        vf_cols = st.columns(3)
+                        vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
+                        vf_cols[1].metric('Dernière VF', r.get('last_vf_year') or '—')
+                        vf_cols[2].metric('Nb éd. FR', r.get('nb_vf_fr') or '—')
+                        if r.get('last_vf_translator'):
+                            st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
+                else:
+                    st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
+                other_eds = [e for e in eds if e.get('lang_code') != 'fr']
+                if other_eds:
+                    langs_str = ', '.join(sorted(set(e['lang'] for e in other_eds)))
+                    with st.expander(f'🌍 {len(other_eds)} autre(s) traduction(s) — {langs_str[:80]}'):
+                        for e in other_eds:
+                            yr = str(e.get('first_year') or '?')+'–'+str(e.get('last_year') or '?')
+                            trad = e.get('translator') or ''
+                            pubs = (e.get('publishers') or '?')[:60]
+                            trad_str = f' — ✍️ {trad}' if trad else ''
+                            st.markdown(f"• **{e.get('lang','?')}** : *{e.get('title','?')}* ({yr}) — {pubs}{trad_str}")
         with c2:
             if r.get('annualviews'):    st.metric('Vues ISFDB/an', int(r['annualviews']))
             if r.get('fantlab_rating'): st.metric('FantLab', str(r['fantlab_rating'])+' ('+str(r.get('fantlab_votes','?'))+' votes)')
@@ -168,7 +204,12 @@ def show_fiche(r):
                 f"L'auteur est décédé en {death} ; ses œuvres tombent dans le domaine public "
                 "70 ans après sa mort (art. 1 de la directive européenne 2006/116/CE).")
         else:
-            st.error("🔒 Protégé en Europe — l'auteur est décédé après 1955 ou la date de décès est inconnue.")
+            death = r.get('death_year')
+            if death:
+                dp_in = int(death) + 71
+                st.warning(f"⏳ Protégé en Europe jusqu'au 1er janvier {dp_in}. L'auteur est décédé en {death}.")
+            else:
+                st.error("🔒 Protégé en Europe — date de décès inconnue.")
 
         # France
         st.markdown('**🇫🇷 Droit français (prorogation de guerre)**')
@@ -666,6 +707,7 @@ if page == '🔍 Catalogue':
                w.nb_editions, w.first_pub_year,
                w.last_vf_year, w.last_vf_publisher, w.last_vf_title,
                w.first_vf_year, w.first_vf_title, w.last_vf_translator, w.nb_vf_fr,
+               w.editions_json,
                w.lang_orig,
                COALESCE(e.status,'À évaluer') as status
         FROM works w
@@ -1124,3 +1166,147 @@ elif page == '📊 Stats':
             st.code('\n'.join(last_stats), language=None)
     else:
         st.caption('Batch pas encore lancé (20_gr_batch.py)')
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAGE RECHERCHE IA
+# ═══════════════════════════════════════════════════════════════════════════════
+elif page == '🤖 Recherche IA':
+    st.title('🤖 Recherche IA')
+    import requests as _req
+    try:
+        _models = [m['name'] for m in _req.get('http://ollama:11434/api/tags', timeout=5).json()['models']]
+    except:
+        _models = [OLLAMA_MODEL_IA]
+    _default = _models.index(OLLAMA_MODEL_IA) if OLLAMA_MODEL_IA in _models else 0
+    _model_sel = st.selectbox('Modèle', _models, index=_default, key='model_sel')
+
+    tab1, tab2, tab3 = st.tabs(['🔍 Recherche libre','💡 Recommandation','📊 Analyse de sélection'])
+
+    with tab1:
+        st.subheader('Recherche en langage naturel')
+        st.caption('Ex : "romans russes dystopiques sans traduction française" · "nouvelles sur les robots avant 1950"')
+        query_libre = st.text_input('Votre recherche', placeholder='Décrivez ce que vous cherchez…', key='q_libre')
+        n_results = st.slider('Résultats max', 5, 50, 20, key='n_libre')
+        run_libre = st.button('🔍 Rechercher', key='btn_libre')
+        if run_libre and query_libre:
+            with st.spinner('Analyse de la requête…'):
+                prompt_sql = f"""You are a SQL assistant for a science fiction database.
+Table: works. Important rules:
+- author and title are text: ALWAYS use LIKE with wildcards, e.g. author LIKE '%Asimov%'
+- type is uppercase: NOVEL, SHORT STORY, COLLECTION, NOVELETTE, NOVELLA
+- dp_us=1 means US public domain (free to use), dp_us=0 means protected
+- dp_eu=1 means EU public domain, dp_eu=0 means protected
+- has_french_vf=0 means NO French translation exists (to translate), =1 means already translated
+- lang_orig is NULL for English works
+- "libres de droits" or "domaine public" = dp_eu=1 OR dp_us=1
+- "sans traduction" or "non traduit" = has_french_vf=0
+
+User request: "{query_libre}"
+Generate ONLY a SQL WHERE clause. No SELECT, no FROM, no semicolon. Use LIKE for text fields.
+WHERE clause:"""
+                where_ia = ollama(prompt_sql, model=_model_sel, temperature=0.1, max_tokens=150)
+            if not where_ia:
+                st.error('Ollama non disponible.')
+            else:
+                where_ia = where_ia.strip().strip(';')
+                if where_ia.upper().startswith('WHERE '): where_ia = where_ia[6:]
+                # Post-traitement : corriger author='X' → author LIKE '%X%'
+                import re as _re
+                where_ia = _re.sub(r"author\s*=\s*'([^']+)'", lambda m: f"author LIKE '%{m.group(1)}%'", where_ia)
+                where_ia = _re.sub(r"title\s*=\s*'([^']+)'", lambda m: f"title LIKE '%{m.group(1)}%'", where_ia)
+                st.code(f'WHERE {where_ia}', language='sql')
+                try:
+                    df_ia = query(f"""
+                        SELECT w.title_id, w.title, w.author, w.year, w."type" as work_type,
+                               w.lang_orig, w.has_french_vf, w.dp_eu, w.dp_us,
+                               w.award_count, w.awards, w.synopsis, w.annualviews
+                        FROM works w WHERE {where_ia}
+                        ORDER BY COALESCE(w.annualviews,0) DESC, w.award_count DESC NULLS LAST
+                        LIMIT {n_results}""")
+                    st.success(f'{len(df_ia)} résultat(s)')
+                    for _, row in df_ia.iterrows():
+                        with st.container():
+                            vf = '🟢' if row['has_french_vf']==1 else '🔴'
+                            yr = str(int(row['year'])) if row['year'] else '?'
+                            st.markdown(f"{vf} **{row['title']}** · {row['author']} · {yr} · *{row.get('work_type','?')}*")
+                            badges = ''
+                            if row.get('dp_eu')==1 and row.get('dp_us')==1: badges += '<span class="dp">✅ DP EU+US</span> '
+                            elif row.get('dp_eu')==1: badges += '<span class="dp">🇪🇺 DP EU</span> '
+                            elif row.get('dp_us')==1: badges += '<span class="dp">🇺🇸 DP US</span> '
+                            if row.get('lang_orig'): badges += f'<span class="tag">🌐 {row["lang_orig"]}</span> '
+                            if row.get('award_count') and int(row['award_count'])>0: badges += f'<span class="award">🏆 {int(row["award_count"])}</span> '
+                            if badges: st.markdown(badges, unsafe_allow_html=True)
+                            if row.get('synopsis'): st.caption(str(row['synopsis'])[:200]+'…')
+                        st.divider()
+                except Exception as e:
+                    st.error(f'Erreur SQL : {e}')
+
+    with tab2:
+        st.subheader('Recommandation par similarité')
+        ref_input = st.text_input('Titre ou auteur de référence', placeholder='Ex: We (Zamyatin) · Asimov · The Time Machine', key='q_reco')
+        run_reco = st.button('💡 Recommander', key='btn_reco')
+        if run_reco and ref_input:
+            df_ref = query("SELECT title, author, year, synopsis, isfdb_tags, \"type\" FROM works WHERE title LIKE ? OR author LIKE ? LIMIT 3",
+                          (f'%{ref_input}%', f'%{ref_input}%'))
+            if len(df_ref)==0:
+                context = f'Reference work: "{ref_input}"'
+            else:
+                row0 = df_ref.iloc[0]
+                st.info(f'Référence : **{row0["title"]}** ({row0["author"]}, {row0["year"]})')
+                context = f'Reference: "{row0["title"]}" by {row0["author"]} ({row0["year"]}). Tags: {row0["isfdb_tags"]}. Synopsis: {str(row0["synopsis"])[:300]}'
+            with st.spinner('Recherche…'):
+                prompt_reco = f"""You are an expert in classic SF literature. {context}
+Generate ONLY a SQL WHERE clause for table "works" to find similar works.
+Focus on type, era, themes. Prioritize has_french_vf=0 AND (dp_eu=1 OR dp_us=1). Max 3 conditions.
+WHERE clause:"""
+                where_reco = ollama(prompt_reco, model=_model_sel, temperature=0.2, max_tokens=100)
+            if where_reco:
+                where_reco = where_reco.strip().strip(';')
+                if where_reco.upper().startswith('WHERE '): where_reco = where_reco[6:]
+                st.code(f'WHERE {where_reco}', language='sql')
+                try:
+                    df_reco = query(f"""SELECT title, author, year, "type" as work_type,
+                               has_french_vf, dp_eu, dp_us, award_count, synopsis, lang_orig
+                        FROM works WHERE {where_reco}
+                        ORDER BY COALESCE(annualviews,0) DESC LIMIT 20""")
+                    st.success(f'{len(df_reco)} œuvres similaires')
+                    st.dataframe(df_reco[['title','author','year','work_type','has_french_vf','award_count']], use_container_width=True)
+                except Exception as e:
+                    st.error(f'Erreur SQL : {e}')
+            else:
+                st.error('Ollama non disponible.')
+
+    with tab3:
+        st.subheader("Analyse d'une sélection éditoriale")
+        df_groupes = query("SELECT DISTINCT groupe FROM editorial WHERE groupe IS NOT NULL AND groupe!='' ORDER BY groupe")
+        groupes = df_groupes['groupe'].tolist() if len(df_groupes)>0 else []
+        if not groupes:
+            st.info('Aucun groupe éditorial défini.')
+        else:
+            groupe_sel = st.selectbox('Groupe à analyser', groupes, key='grp_analyse')
+            run_analyse = st.button('📊 Analyser', key='btn_analyse')
+            if run_analyse:
+                df_sel = query("""SELECT w.title, w.author, w.year, w."type", w.synopsis,
+                               w.isfdb_tags, w.award_count, w.nb_langues_vf, e.score
+                        FROM editorial e JOIN works w ON e.title_id=w.title_id
+                        WHERE e.groupe=? ORDER BY e.score DESC NULLS LAST""", (groupe_sel,))
+                if len(df_sel)==0:
+                    st.warning('Groupe vide.')
+                else:
+                    works_list = '\n'.join([f'- {r["title"]} ({r["author"]}, {r["year"]}) [{r["type"]}]{" — "+str(r["synopsis"])[:150] if r["synopsis"] else ""}' for _,r in df_sel.iterrows()])
+                    with st.spinner('Analyse en cours (30-60s)…'):
+                        prompt_analyse = f"""You are an editorial consultant in classic SF. Analyze this selection of {len(df_sel)} works from group "{groupe_sel}":
+{works_list}
+Provide a structured analysis in French:
+1. **Thèmes dominants**
+2. **Cohérence éditoriale**
+3. **Opportunités** (ce qui manque)
+4. **Top 3 priorités de traduction**
+Max 400 words."""
+                        analyse = ollama(prompt_analyse, model=_model_sel, temperature=0.4, max_tokens=600)
+                    if analyse:
+                        st.markdown(analyse)
+                    else:
+                        st.error('Ollama non disponible.')
+                    st.markdown('---')
+                    st.dataframe(df_sel[['title','author','year','award_count','nb_langues_vf','score']], use_container_width=True)

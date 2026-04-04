@@ -272,7 +272,7 @@ for i, row in enumerate(ol_targets):
         )
 
         r = requests.post(OLLAMA_URL, json={
-            'model': 'gemma3:latest',
+            'model': 'gemma3:27b',
             'prompt': prompt,
             'stream': False,
             'options': {'temperature': 0.3, 'num_predict': 150}
