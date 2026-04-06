@@ -52,7 +52,7 @@ for trans in translators:
     last_trans = r['last_trans'] or first_trans
     
     # Heuristique : présumé mort si inactif ≥40 ans
-    years_inactive = 2026 - last_trans
+    years_inactive = 2026 - int(last_trans)
     
     if years_inactive >= 40:
         # Estimation mort : dernière activité + 10 ans
