@@ -164,14 +164,38 @@ def show_fiche(r):
                             yr = str(e.get('first_year') or '?')+'–'+str(e.get('last_year') or '?')
                             trad = e.get('translator') or r.get('last_vf_translator') or '?'
                             pubs = (e.get('publishers') or '?')[:70]
-                            st.markdown(f"• *{e.get('title','?')}* ({yr}) — {pubs} — ✍️ {trad}")
+                            # Statut DP traducteur
+                            trad_status = ""
+                            if trad and trad != '?':
+                                try:
+                                    tr = c.execute("SELECT death_year, dp_year FROM translators WHERE name=?", (trad.split(',')[0].strip(),)).fetchone()
+                                    if tr and tr[0]:
+                                        if tr[1] <= 2026:
+                                            trad_status = f" ✅"
+                                        else:
+                                            trad_status = f" 🔒{tr[1]}"
+                                except: pass
+                            st.markdown(f"• *{e.get('title','?')}* ({yr}) — {pubs} — ✍️ {trad}{trad_status}")
                     else:
                         vf_cols = st.columns(3)
                         vf_cols[0].metric('Première VF', r.get('first_vf_year') or '—')
                         vf_cols[1].metric('Dernière VF', r.get('last_vf_year') or '—')
                         vf_cols[2].metric('Nb éd. FR', r.get('nb_vf_fr') or '—')
                         if r.get('last_vf_translator'):
-                            st.caption('✍️ Traducteur(s) : '+str(r['last_vf_translator']))
+                            trans = str(r['last_vf_translator'])
+                            trans_status = ""
+                            try:
+                                for t_name in trans.split(','):
+                                    t_name = t_name.strip()
+                                    tr = c.execute("SELECT death_year, dp_year FROM translators WHERE name=?", (t_name,)).fetchone()
+                                    if tr and tr[0]:
+                                        if tr[1] <= 2026:
+                                            trans_status = f" — ✅ Traduction DP depuis {tr[1]} (†{tr[0]})"
+                                        else:
+                                            trans_status = f" — 🔒 Traduction protégée jusqu'en {tr[1]} (†{tr[0]})"
+                                        break
+                            except: pass
+                            st.caption('✍️ Traducteur(s) : '+trans+trans_status)
                 else:
                     st.markdown('**🇫🇷 VF** : 🔴 Non traduit en français')
                 other_eds = [e for e in eds if e.get('lang_code') != 'fr']

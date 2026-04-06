@@ -46,24 +46,32 @@ for col, defn in [('cover_url','TEXT'), ('gr_summary','TEXT')]:
 sc.execute("""
     SELECT title_id, title, author, year, goodreads_id,
            award_count, nb_langues_vf, annualviews,
-           has_french_vf, last_vf_year
+           has_french_vf, last_vf_year, death_year,
+           dp_eu, dp_us
     FROM works
-    WHERE dp_eu=1 AND dp_us=1
+    WHERE (gr_summary IS NULL OR gr_summary = '')
       AND goodreads_id IS NOT NULL
-      AND (gr_summary IS NULL OR gr_summary = '')
       AND (
-          has_french_vf = 0
-          OR (has_french_vf = 1 AND (last_vf_year IS NULL OR CAST(last_vf_year AS INTEGER) <= 1995))
+          (dp_eu=1 AND dp_us=1)
+          OR (death_year BETWEEN 1956 AND 1971
+              AND (CAST(annualviews AS INTEGER)/1000
+                   + COALESCE(nb_langues_vf,0)*5
+                   + COALESCE(award_score,0)) >= 5)
       )
     ORDER BY
         CASE
-            WHEN has_french_vf = 0 AND award_count > 0             THEN 1
-            WHEN has_french_vf = 0 AND nb_langues_vf >= 3          THEN 2
-            WHEN has_french_vf = 0 AND CAST(annualviews AS INTEGER) > 500           THEN 3
-            WHEN has_french_vf = 0                                  THEN 4
-            WHEN has_french_vf = 1 AND CAST(last_vf_year AS INTEGER) <= 1975 THEN 5
-            WHEN has_french_vf = 1 AND CAST(last_vf_year AS INTEGER) <= 1995 THEN 6
-            ELSE 7
+            WHEN dp_eu=1 AND dp_us=1 AND has_french_vf=0 AND award_count > 0 THEN 1
+            WHEN dp_eu=1 AND dp_us=1 AND has_french_vf=0 AND nb_langues_vf >= 3 THEN 2
+            WHEN dp_eu=1 AND dp_us=1 AND has_french_vf=0
+                 AND CAST(annualviews AS INTEGER) > 500 THEN 3
+            WHEN dp_eu=1 AND dp_us=1 AND has_french_vf=0 THEN 4
+            WHEN dp_eu=1 AND dp_us=1
+                 AND CAST(last_vf_year AS INTEGER) <= 1975 THEN 5
+            WHEN dp_eu=1 AND dp_us=1
+                 AND CAST(last_vf_year AS INTEGER) <= 1995 THEN 6
+            WHEN dp_eu=1 AND dp_us=1 THEN 7
+            WHEN death_year BETWEEN 1956 AND 1971 THEN 8
+            ELSE 9
         END,
         award_count DESC,
         annualviews DESC NULLS LAST
@@ -108,12 +116,12 @@ def extract_description(text):
     desc_lines = []
     for line in lines:
         line = line.strip()
-        if not line or line.startswith('[') or line.startswith('!') or line.startswith('#'):
-            continue
-        if re.search(r'(kindle|paperback|hardcover|\$\d|buy on|want to read)', line, re.I):
-            continue
-        if re.search(r'(displaying \d+|ratings & reviews|community reviews)', line, re.I):
-            break
+        if not line: continue
+        if line.startswith('[') or line.startswith('!') or line.startswith('#'): continue
+        if line.startswith('*'): continue
+        if 'goodreads.com' in line.lower(): continue
+        if re.search(r'(kindle|paperback|hardcover|buy on|want to read|nav_brws)', line, re.I): continue
+        if re.search(r'(displaying \d+|ratings & reviews|community reviews)', line, re.I): break
         if len(line) > 80:
             desc_lines.append(line)
         if len(desc_lines) >= 5:
