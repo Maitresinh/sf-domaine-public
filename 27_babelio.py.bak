@@ -81,7 +81,7 @@ targets = list(sc.fetchall())
 log.info(f'{len(targets)} cibles avec VF française')
 
 p1 = sum(1 for r in targets if r['dp_eu']==1 and r['dp_us']==1 and r['last_vf_year'] and int(r['last_vf_year'])<=1995)
-p2 = sum(1 for r in targets if r['death_year'] and 1956<=int(r['death_year'])<=1971)
+p2 = sum(1 for r in targets if r['death_year'] and 1956<=r['death_year']<=1971)
 p3 = len(targets) - p1 - p2
 log.info(f'  P1 (VF ≤1995)    : {p1}')
 log.info(f'  P2 (Anticip VF)  : {p2}')
