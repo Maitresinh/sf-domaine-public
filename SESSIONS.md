@@ -428,3 +428,22 @@ La requête "Dernière VF" (section 2) n'a AUCUN filtre langue :
 2. Afficher critiques noosfere dans `8_app.py` (onglet dédié ou inline fiche)
 3. Lancer `13_reviews.py` Guardian sur les nouvelles œuvres non-anglophones
 4. Mettre à jour README scripts pipeline (13_, 15_, 16_, 17_, 18_)
+
+### 📝 TODO Session suivante (complément)
+
+**Priorité 5 — Gestion DB volumineuse** :
+1. **Script backup_db.sh automatique**
+   - VACUUM hebdomadaire
+   - Compression gzip
+   - Backup local + Git LFS si < 1 Go
+   - Nettoyage backups > 30 jours
+2. **Configurer Git LFS**
+   - `git lfs track "data/*.sqlite.gz"`
+   - Commit .gitattributes
+3. **Tester backup/restore**
+   - Backup complet
+   - Test restauration
+   - Valider intégrité
+4. **Monitoring taille DB**
+   - Alert si > 2 Go
+   - Prévoir archivage JSON si > 5 Go
